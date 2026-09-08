@@ -269,7 +269,9 @@ local function ShowSplash()
 
     -- Animate
     local function UpdateProgress(percent, text)
-        ProgressBar:TweenSize(UDim2.new(percent / 100, 0, 1, 0), Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0.3, true)
+        TweenService:Create(ProgressBar, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+            Size = UDim2.new(percent / 100, 0, 1, 0)
+        }):Play()
         StatusLabel.Text = math.floor(percent) .. "%"
         if text then
             Sub.Text = text
