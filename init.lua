@@ -44,11 +44,33 @@ end
 -- ═══════════════════════════════════════════
 local function LoadFile(path)
     local success, result = pcall(function()
+        local source
+
+        -- Tentar readfile primeiro (se local)
         if readfile and isfile and isfile(path) then
-            local source = readfile(path)
-            local fn = loadstring(source)
+            source = readfile(path)
+        end
+
+        -- Se não encontrou, baixar do GitHub
+        if not source then
+            local rawContent = game:HttpGet(
+                "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
+                true
+            )
+            if rawContent and rawContent ~= "" then
+                source = rawContent
+                if writefile then
+                    pcall(writefile, path, source)
+                end
+            end
+        end
+
+        if source and source ~= "" then
+            local fn, err = loadstring(source)
             if fn then
                 return fn()
+            else
+                warn("[CUZAO] Erro loadstring: " .. path .. " - " .. tostring(err))
             end
         end
         return nil
@@ -68,6 +90,15 @@ local coreModules = {
 
 for _, name in ipairs(coreModules) do
     local mod = LoadFile("modules/core/" .. name .. ".lua")
+    if mod then CUZAO.Modules[name] = mod end
+end
+
+-- ═══════════════════════════════════════════
+-- LOAD DATA
+-- ═══════════════════════════════════════════
+local dataModules = { "Locations", "Fruits", "Weapons" }
+for _, name in ipairs(dataModules) do
+    local mod = LoadFile("data/" .. name .. ".lua")
     if mod then CUZAO.Modules[name] = mod end
 end
 

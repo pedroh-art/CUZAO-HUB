@@ -58,13 +58,28 @@ end
 local function LoadModule(path)
     local success, result = pcall(function()
         local source
-        if readfile and isfile then
-            if isfile(path) then
-                source = readfile(path)
+
+        -- Tentar readfile primeiro (se rodando localmente)
+        if readfile and isfile and isfile(path) then
+            source = readfile(path)
+        end
+
+        -- Se não encontrou localmente, baixar do GitHub
+        if not source then
+            local rawContent = game:HttpGet(
+                "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
+                true -- silent
+            )
+            if rawContent and rawContent ~= "" then
+                source = rawContent
+                -- Salvar localmente para próxima vez (se o executor suporta)
+                if writefile then
+                    pcall(writefile, path, source)
+                end
             end
         end
 
-        if source then
+        if source and source ~= "" then
             local fn, err = loadstring(source)
             if fn then
                 return fn()
