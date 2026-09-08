@@ -14,8 +14,8 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 
--- Modules
-local Theme = require(script.Parent.Theme)
+-- Modules (carregado do CUZAO global pois require() não funciona com loadstring)
+local Theme = getgenv().CUZAO.Modules["Theme"]
 
 -- Config
 Library.Config = {
@@ -590,7 +590,17 @@ function Library:CreateTab(config)
 
         local sectionAPI = {}
 
-        function sectionAPI:AddParagraph(text, desc)
+        function sectionAPI:AddParagraph(config, desc)
+            -- Suporta tanto AddParagraph("text", "desc") quanto AddParagraph({Title = "...", Desc = "..."})
+            local text, description
+            if type(config) == "table" then
+                text = config.Title or config.Text or ""
+                description = config.Desc or config.Description
+            else
+                text = config or ""
+                description = desc
+            end
+
             local paraFrame = Create("Frame", {
                 Size = UDim2.new(1, 0, 0, 0),
                 BackgroundTransparency = 1,
@@ -613,12 +623,12 @@ function Library:CreateTab(config)
                 Parent = paraFrame,
             })
 
-            if desc then
+            if description then
                 Create("TextLabel", {
                     Size = UDim2.new(1, -16, 0, 0),
                     Position = UDim2.new(0, 8, 0, 24),
                     BackgroundTransparency = 1,
-                    Text = desc,
+                    Text = description,
                     TextColor3 = Theme:GetColor("TextMuted"),
                     TextSize = 11,
                     Font = Enum.Font.Gotham,

@@ -11,7 +11,8 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
-local Theme = require(script.Parent.Theme)
+-- Theme carregado do CUZAO global (require() não funciona com loadstring/HttpGet)
+local Theme = getgenv().CUZAO.Modules["Theme"]
 
 -- ═══════════════════════════════════════════
 -- UTILITIES
