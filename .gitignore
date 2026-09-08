@@ -1,0 +1,21 @@
+# CUZAO HUB - Git Ignore
+
+# Config local do usuário (não deve ser commitado)
+config.json
+*.local.json
+
+# Claude Code
+.claude/settings.local.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
