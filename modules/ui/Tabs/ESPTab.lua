@@ -1,12 +1,17 @@
 --!strict
 --[[
     CUZAO HUB - ESP Tab
-    ESP para jogadores, frutas, cofres e NPCs
+    ESP para jogadores, frutas, ilhas e NPCs
+    Conectado via EventBus aos módulos de features
 ]]
 
 local ESPTab = {}
 
 function ESPTab.Build(window)
+    local CUZAO = getgenv().CUZAO
+    local EventBus = CUZAO and CUZAO.Modules["EventBus"]
+    local ConfigManager = CUZAO and CUZAO.Modules["ConfigManager"]
+
     local tab = window:CreateTab({ Name = "ESP", Icon = "👁️" })
 
     -- ═══ Player ESP ═══
@@ -16,53 +21,44 @@ function ESPTab.Build(window)
         Text = "Player ESP",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] Player ESP: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("ESP.Player.Enabled", value) end
+            if EventBus then EventBus:Emit("ESP.Player.Toggle", value) end
         end,
     })
 
     playerSection:AddToggle({
-        Text = "Box ESP",
+        Text = "Nome + Distância",
         Default = true,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Player.ShowName", value) end
+        end,
     })
 
     playerSection:AddToggle({
-        Text = "Name ESP",
+        Text = "Show Health",
         Default = true,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Player.ShowHealth", value) end
+        end,
     })
 
     playerSection:AddToggle({
-        Text = "Health ESP",
+        Text = "Team Color (Aliado/Azul, Inimigo/Vermelho)",
         Default = true,
-        Callback = function(value) end,
-    })
-
-    playerSection:AddToggle({
-        Text = "Distance ESP",
-        Default = false,
-        Callback = function(value) end,
-    })
-
-    playerSection:AddToggle({
-        Text = "Team Color",
-        Default = false,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Player.TeamColor", value) end
+        end,
     })
 
     playerSection:AddSlider({
-        Text = "ESP Max Distance",
+        Text = "Distância Máxima",
         Min = 100,
         Max = 10000,
         Default = 5000,
         Suffix = " studs",
-        Callback = function(value) end,
-    })
-
-    playerSection:AddColorPicker({
-        Text = "Box Color",
-        Default = Color3.fromRGB(255, 0, 0),
-        Callback = function(color) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Player.MaxDistance", value) end
+        end,
     })
 
     -- ═══ Fruit ESP ═══
@@ -72,124 +68,71 @@ function ESPTab.Build(window)
         Text = "Fruit ESP",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] Fruit ESP: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("ESP.Fruit.Enabled", value) end
+            if EventBus then EventBus:Emit("ESP.Fruit.Toggle", value) end
         end,
     })
 
     fruitSection:AddToggle({
-        Text = "Fruit Name",
+        Text = "Nome da Fruta",
         Default = true,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Fruit.ShowName", value) end
+        end,
     })
 
     fruitSection:AddToggle({
-        Text = "Fruit Distance",
+        Text = "Distância",
         Default = true,
-        Callback = function(value) end,
-    })
-
-    fruitSection:AddColorPicker({
-        Text = "Fruit Color",
-        Default = Color3.fromRGB(255, 165, 0),
-        Callback = function(color) end,
-    })
-
-    -- ═══ Chest ESP ═══
-    local chestSection = tab:CreateSection("Chest ESP")
-
-    chestSection:AddToggle({
-        Text = "Chest ESP",
-        Default = false,
         Callback = function(value)
-            print("[CUZAO] Chest ESP: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("ESP.Fruit.ShowDistance", value) end
         end,
     })
 
-    chestSection:AddToggle({
-        Text = "Diamond Chest",
-        Default = true,
-        Callback = function(value) end,
-    })
+    -- ═══ Island ESP ═══
+    local islandSection = tab:CreateSection("Island/Location ESP")
 
-    chestSection:AddToggle({
-        Text = "Gold Chest",
-        Default = true,
-        Callback = function(value) end,
-    })
-
-    chestSection:AddToggle({
-        Text = "Silver Chest",
-        Default = false,
-        Callback = function(value) end,
-    })
-
-    chestSection:AddColorPicker({
-        Text = "Chest Color",
-        Default = Color3.fromRGB(255, 215, 0),
-        Callback = function(color) end,
-    })
-
-    -- ═══ NPC ESP ═══
-    local npcSection = tab:CreateSection("NPC ESP")
-
-    npcSection:AddToggle({
-        Text = "NPC ESP",
+    islandSection:AddToggle({
+        Text = "Island ESP",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] NPC ESP: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("ESP.Island.Enabled", value) end
+            if EventBus then EventBus:Emit("ESP.Island.Toggle", value) end
         end,
     })
 
-    npcSection:AddToggle({
-        Text = "Quest Giver Highlight",
+    islandSection:AddToggle({
+        Text = "Event Island ESP (Mirage, Kitsune, etc)",
         Default = false,
-        Callback = function(value) end,
-    })
-
-    npcSection:AddToggle({
-        Text = "Dealer Highlight",
-        Default = false,
-        Callback = function(value) end,
-    })
-
-    npcSection:AddColorPicker({
-        Text = "NPC Color",
-        Default = Color3.fromRGB(0, 255, 0),
-        Callback = function(color) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.EventIsland.Enabled", value) end
+        end,
     })
 
     -- ═══ Misc ESP ═══
-    local miscSection = tab:CreateSection("ESP Misc")
+    local miscSection = tab:CreateSection("ESP Diversos")
 
     miscSection:AddToggle({
-        Text = "Island Names",
+        Text = "Chest ESP",
         Default = false,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Chest.Enabled", value) end
+            if EventBus then EventBus:Emit("ESP.Chest.Toggle", value) end
+        end,
     })
 
     miscSection:AddToggle({
-        Text = "Sea Monster ESP",
+        Text = "Advanced Dealer ESP",
         Default = false,
-        Callback = function(value) end,
-    })
-
-    miscSection:AddToggle({
-        Text = "Ability Cooldown ESP",
-        Default = false,
-        Callback = function(value) end,
-    })
-
-    miscSection:AddButton({
-        Text = "Refresh All ESP",
-        Callback = function()
-            print("[CUZAO] Refreshing ESP...")
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("ESP.Dealer.Enabled", value) end
         end,
     })
 
     miscSection:AddButton({
-        Text = "Clear All ESP",
+        Text = "🗑️ Limpar Todos ESP",
         Callback = function()
-            print("[CUZAO] Clearing ESP...")
+            if EventBus then EventBus:Emit("ESP.ClearAll") end
         end,
     })
 

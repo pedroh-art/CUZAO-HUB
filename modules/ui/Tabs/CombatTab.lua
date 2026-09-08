@@ -1,72 +1,71 @@
 --!strict
 --[[
     CUZAO HUB - Combat Tab
-    AutoClicker, AimBot, KillAura, SkillSpam, Haki
+    AutoClicker, FastAttack, SkillSpam, Haki
+    Conectado via EventBus aos módulos de features
 ]]
 
 local CombatTab = {}
 
 function CombatTab.Build(window)
+    local CUZAO = getgenv().CUZAO
+    local EventBus = CUZAO and CUZAO.Modules["EventBus"]
+    local ConfigManager = CUZAO and CUZAO.Modules["ConfigManager"]
+
     local tab = window:CreateTab({ Name = "Combat", Icon = "🗡️" })
 
-    -- ═══ Auto Clicker ═══
-    local clickerSection = tab:CreateSection("Auto Clicker")
+    -- ═══ Fast Attack ═══
+    local fastSection = tab:CreateSection("Fast Attack")
 
-    clickerSection:AddToggle({
-        Text = "Auto Clicker",
-        Default = false,
+    fastSection:AddToggle({
+        Text = "Fast Attack (No Cooldown)",
+        Default = true,
         Callback = function(value)
-            print("[CUZAO] Auto Clicker: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("Combat.FastAttack", value) end
+            if EventBus then EventBus:Emit("Combat.FastAttack.Toggle", value) end
         end,
     })
 
-    clickerSection:AddSlider({
+    fastSection:AddSlider({
+        Text = "Attack Range",
+        Min = 5,
+        Max = 60,
+        Default = 60,
+        Suffix = " studs",
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.AttackRange", value) end
+        end,
+    })
+
+    fastSection:AddToggle({
+        Text = "Auto Click",
+        Default = false,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.AutoClick", value) end
+            if EventBus then EventBus:Emit("Combat.AutoClick.Toggle", value) end
+        end,
+    })
+
+    fastSection:AddSlider({
         Text = "Click Interval",
         Min = 10,
         Max = 500,
         Default = 50,
         Suffix = "ms",
         Callback = function(value)
-            print("[CUZAO] Click Interval: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("Combat.ClickInterval", value) end
         end,
-    })
-
-    clickerSection:AddDropdown({
-        Text = "Click Method",
-        Options = {"Tap", "Button", "Remote"},
-        Default = "Tap",
-        Callback = function(value) end,
-    })
-
-    clickerSection:AddToggle({
-        Text = "Hold to Click",
-        Default = true,
-        Callback = function(value) end,
-    })
-
-    clickerSection:AddToggle({
-        Text = "Auto Click While Farming",
-        Default = true,
-        Callback = function(value) end,
     })
 
     -- ═══ AimBot ═══
     local aimSection = tab:CreateSection("AimBot")
 
     aimSection:AddToggle({
-        Text = "AimBot",
+        Text = "Silent Aim",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] AimBot: " .. tostring(value))
-        end,
-    })
-
-    aimSection:AddDropdown({
-        Text = "AimBot Mode",
-        Options = {"Silent", "Legit", "FOV"},
-        Default = "Silent",
-        Callback = function(value)
-            print("[CUZAO] AimBot Mode: " .. value)
+            if ConfigManager then ConfigManager:Set("Combat.SilentAim", value) end
+            if EventBus then EventBus:Emit("Combat.AimBot.Toggle", value) end
         end,
     })
 
@@ -74,7 +73,9 @@ function CombatTab.Build(window)
         Text = "Target Part",
         Options = {"Head", "HumanoidRootPart", "Closest"},
         Default = "Head",
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.AimPart", value) end
+        end,
     })
 
     aimSection:AddSlider({
@@ -83,31 +84,9 @@ function CombatTab.Build(window)
         Max = 500,
         Default = 150,
         Suffix = "px",
-        Callback = function(value) end,
-    })
-
-    aimSection:AddToggle({
-        Text = "Show FOV Circle",
-        Default = false,
-        Callback = function(value) end,
-    })
-
-    aimSection:AddColorPicker({
-        Text = "FOV Circle Color",
-        Default = Color3.fromRGB(255, 255, 255),
-        Callback = function(color) end,
-    })
-
-    aimSection:AddToggle({
-        Text = "Team Check",
-        Default = true,
-        Callback = function(value) end,
-    })
-
-    aimSection:AddToggle({
-        Text = "Wall Check",
-        Default = false,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.FOVSize", value) end
+        end,
     })
 
     -- ═══ Kill Aura ═══
@@ -117,7 +96,8 @@ function CombatTab.Build(window)
         Text = "Kill Aura",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] Kill Aura: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("Combat.KillAura", value) end
+            if EventBus then EventBus:Emit("Combat.KillAura.Toggle", value) end
         end,
     })
 
@@ -127,73 +107,58 @@ function CombatTab.Build(window)
         Max = 60,
         Default = 20,
         Suffix = " studs",
-        Callback = function(value) end,
-    })
-
-    auraSection:AddDropdown({
-        Text = "Aura Mode",
-        Options = {"Auto", "Semi-Auto", "Hold"},
-        Default = "Auto",
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.AuraRange", value) end
+        end,
     })
 
     auraSection:AddToggle({
         Text = "Aura on Players",
         Default = false,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.AuraPlayers", value) end
+        end,
     })
 
     auraSection:AddToggle({
         Text = "Aura on NPCs",
         Default = true,
-        Callback = function(value) end,
-    })
-
-    auraSection:AddToggle({
-        Text = "Smooth Aura",
-        Default = true,
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.AuraNPCs", value) end
+        end,
     })
 
     -- ═══ Skill Spam ═══
     local skillSection = tab:CreateSection("Skill Spam")
 
     skillSection:AddToggle({
-        Text = "Skill Spam",
+        Text = "Auto Skill Spam",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] Skill Spam: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("Combat.SkillSpam", value) end
+            if EventBus then EventBus:Emit("Combat.SkillSpam.Toggle", value) end
         end,
     })
 
     skillSection:AddToggle({
-        Text = "Z Skill",
-        Default = true,
-        Callback = function(value) end,
+        Text = "Z Skill", Default = true,
+        Callback = function(v) if ConfigManager then ConfigManager:Set("Combat.SkillZ", v) end end,
     })
-
     skillSection:AddToggle({
-        Text = "X Skill",
-        Default = true,
-        Callback = function(value) end,
+        Text = "X Skill", Default = true,
+        Callback = function(v) if ConfigManager then ConfigManager:Set("Combat.SkillX", v) end end,
     })
-
     skillSection:AddToggle({
-        Text = "C Skill",
-        Default = true,
-        Callback = function(value) end,
+        Text = "C Skill", Default = true,
+        Callback = function(v) if ConfigManager then ConfigManager:Set("Combat.SkillC", v) end end,
     })
-
     skillSection:AddToggle({
-        Text = "V Skill",
-        Default = true,
-        Callback = function(value) end,
+        Text = "V Skill", Default = true,
+        Callback = function(v) if ConfigManager then ConfigManager:Set("Combat.SkillV", v) end end,
     })
-
     skillSection:AddToggle({
-        Text = "F Skill",
-        Default = false,
-        Callback = function(value) end,
+        Text = "F Skill", Default = false,
+        Callback = function(v) if ConfigManager then ConfigManager:Set("Combat.SkillF", v) end end,
     })
 
     skillSection:AddSlider({
@@ -202,7 +167,9 @@ function CombatTab.Build(window)
         Max = 3000,
         Default = 500,
         Suffix = "ms",
-        Callback = function(value) end,
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.SkillDelay", value) end
+        end,
     })
 
     -- ═══ Haki ═══
@@ -212,7 +179,8 @@ function CombatTab.Build(window)
         Text = "Auto Buso Haki",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] Auto Buso: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("Combat.AutoBuso", value) end
+            if EventBus then EventBus:Emit("Combat.Buso.Toggle", value) end
         end,
     })
 
@@ -220,23 +188,18 @@ function CombatTab.Build(window)
         Text = "Auto Ken Haki",
         Default = false,
         Callback = function(value)
-            print("[CUZAO] Auto Ken: " .. tostring(value))
+            if ConfigManager then ConfigManager:Set("Combat.AutoKen", value) end
+            if EventBus then EventBus:Emit("Combat.Ken.Toggle", value) end
         end,
     })
 
-    hakiSection:AddToggle({
-        Text = "Auto Advance Ken",
-        Default = false,
-        Callback = function(value) end,
-    })
-
-    hakiSection:AddSlider({
-        Text = "Ken Haki Refresh",
-        Min = 1,
-        Max = 10,
-        Default = 3,
-        Suffix = "s",
-        Callback = function(value) end,
+    hakiSection:AddDropdown({
+        Text = "Haki Stage",
+        Options = {"State 0", "State 1", "State 2", "State 3", "State 4", "State 5"},
+        Default = "State 0",
+        Callback = function(value)
+            if ConfigManager then ConfigManager:Set("Combat.HakiStage", value) end
+        end,
     })
 
     return tab
