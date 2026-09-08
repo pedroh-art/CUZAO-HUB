@@ -29,6 +29,8 @@ add_mod() {
         # Copy file content, replace the last 'return X' with assignment
         # Remove '--!strict' directives
         sed '/^--!strict$/d' "$SRC/$filepath" >> "$OUTPUT"
+        # Garantir newline antes de end) para evitar concatenação com última linha
+        printf '\n' >> "$OUTPUT"
         echo "end)" >> "$OUTPUT"
         echo "  ✓ $modname"
     else

@@ -130,7 +130,8 @@ function Services:CommE(...)
     return success, result
 end
 
-return Servicesend)
+return Services
+end)
 
 -- [Core/Utilities]
 pcall(function()
@@ -712,7 +713,8 @@ function Utilities:UnbindAction(name)
     UserInputService:UnbindAction(name)
 end
 
-return Utilitiesend)
+return Utilities
+end)
 
 -- [Core/EventBus]
 pcall(function()
@@ -952,7 +954,8 @@ function EventBus:DebugPrint()
     print("=====================")
 end
 
-return EventBusend)
+return EventBus
+end)
 
 -- [Core/ConfigManager]
 pcall(function()
@@ -1556,7 +1559,8 @@ function ConfigManager:Initialize()
     return self.CurrentConfig
 end
 
-return ConfigManagerend)
+return ConfigManager
+end)
 
 -- [Core/Http]
 pcall(function()
@@ -1884,7 +1888,8 @@ function Http:ProcessQueue()
     end)
 end
 
-return Httpend)
+return Http
+end)
 
 -- [Core/Tween]
 pcall(function()
@@ -2496,7 +2501,8 @@ end
 -- Adicionar HttpService para GUID
 local HttpService = game:GetService("HttpService")
 
-return TweenModuleend)
+return TweenModule
+end)
 
 -- [Core/Combat]
 pcall(function()
@@ -3119,7 +3125,8 @@ function Combat:Cleanup()
     self:StopAutoKen()
 end
 
-return Combatend)
+return Combat
+end)
 
 -- [Core/Inventory]
 pcall(function()
@@ -3602,7 +3609,8 @@ function Inventory:PrintInventory()
     print("==================")
 end
 
-return Inventoryend)
+return Inventory
+end)
 
 -- [Core/AntiCheat]
 pcall(function()
@@ -4168,7 +4176,8 @@ function AntiCheat:GetStatus()
     }
 end
 
-return AntiCheatend)
+return AntiCheat
+end)
 
 -- [Core/Movement]
 pcall(function()
@@ -4808,7 +4817,8 @@ function Movement:GetStatus()
     }
 end
 
-return Movementend)
+return Movement
+end)
 
 -- [Data/Locations]
 pcall(function()
@@ -5319,7 +5329,8 @@ function Locations:GetBestFarmIsland(level)
     return nil, nil
 end
 
-return Locationsend)
+return Locations
+end)
 
 -- [Data/Fruits]
 pcall(function()
@@ -5873,7 +5884,8 @@ function Fruits:GetPlayerFruits(player)
     return fruits
 end
 
-return Fruitsend)
+return Fruits
+end)
 
 -- [Data/Weapons]
 pcall(function()
@@ -6220,7 +6232,8 @@ function Weapons:SortByDamage(weaponTable)
     return sorted
 end
 
-return Weaponsend)
+return Weapons
+end)
 
 -- [Utils/Logger]
 pcall(function()
@@ -6376,7 +6389,8 @@ function Logger:ExportHistory()
     return table.concat(lines, "\n")
 end
 
-return Loggerend)
+return Logger
+end)
 
 -- [Utils/Notifications]
 pcall(function()
@@ -6635,7 +6649,8 @@ function Notifications:Fruit(title, msg) self:Show(title, msg, "Fruit") end
 function Notifications:Raid(title, msg) self:Show(title, msg, "Raid") end
 function Notifications:Farm(title, msg) self:Show(title, msg, "Farm") end
 
-return Notificationsend)
+return Notifications
+end)
 
 -- [Utils/Updater]
 pcall(function()
@@ -6856,7 +6871,8 @@ function Updater:Init()
     end
 end
 
-return Updaterend)
+return Updater
+end)
 
 -- [Theme]
 pcall(function()
@@ -7114,7 +7130,8 @@ function Theme:GetRGBColor(offset)
     return Color3.new(r + m, g + m, b + m)
 end
 
-return Themeend)
+return Theme
+end)
 
 -- [Library]
 pcall(function()
@@ -8508,7 +8525,8 @@ function Library:UpdateTheme(themeName)
     self:Notify("Theme", "Tema alterado para " .. themeName, "Info")
 end
 
-return Libraryend)
+return Library
+end)
 
 -- [Window]
 pcall(function()
@@ -9673,7 +9691,8 @@ function Window:Notify(title, message, notifType, duration)
     end)
 end
 
-return Windowend)
+return Window
+end)
 
 -- [Feature/AutoFarm/LevelFarm]
 pcall(function()
@@ -10518,6 +10537,7 @@ function LevelFarm:Cleanup()
 end
 
 return LevelFarm
+
 end)
 
 -- [Feature/AutoFarm/BoneFarm]
@@ -11052,6 +11072,7 @@ function BoneFarm:Cleanup()
 end
 
 return BoneFarm
+
 end)
 
 -- [Feature/AutoFarm/KatakuriFarm]
@@ -11573,6 +11594,7 @@ function KatakuriFarm:Cleanup()
 end
 
 return KatakuriFarm
+
 end)
 
 -- [Feature/Combat/AutoClicker]
@@ -12162,6 +12184,7 @@ function AutoClicker:Cleanup()
 end
 
 return AutoClicker
+
 end)
 
 -- [Feature/ESP/PlayerESP]
@@ -12691,6 +12714,7 @@ function PlayerESP:Cleanup()
 end
 
 return PlayerESP
+
 end)
 
 -- [Feature/ESP/FruitESP]
@@ -13200,6 +13224,7 @@ function FruitESP:Cleanup()
 end
 
 return FruitESP
+
 end)
 
 -- [Feature/Teleport/IslandTP]
@@ -13677,6 +13702,7 @@ function IslandTP:Cleanup()
 end
 
 return IslandTP
+
 end)
 
 -- [Feature/Misc/ServerHop]
@@ -14174,6 +14200,7 @@ function ServerHop:Cleanup()
 end
 
 return ServerHop
+
 end)
 
 -- [Feature/Misc/Fly]
@@ -14582,6 +14609,7 @@ function Fly:Cleanup()
 end
 
 return Fly
+
 end)
 
 -- [Feature/Misc/StatAssign]
@@ -15117,6 +15145,7 @@ function StatAssign:Cleanup()
 end
 
 return StatAssign
+
 end)
 
 -- [Tab/MainTab]
@@ -15365,6 +15394,7 @@ function MainTab.Build(window)
 end
 
 return MainTab
+
 end)
 
 -- [Tab/FarmTab]
@@ -15627,6 +15657,7 @@ function FarmTab.Build(window)
 end
 
 return FarmTab
+
 end)
 
 -- [Tab/RaidTab]
@@ -15758,7 +15789,8 @@ function RaidTab.Build(window)
     return tab
 end
 
-return RaidTabend)
+return RaidTab
+end)
 
 -- [Tab/FruitTab]
 pcall(function()
@@ -15908,7 +15940,8 @@ function FruitTab.Build(window)
     return tab
 end
 
-return FruitTabend)
+return FruitTab
+end)
 
 -- [Tab/TeleportTab]
 pcall(function()
@@ -16382,7 +16415,8 @@ function TeleportTab.Build(window, Locations)
     return tab
 end
 
-return TeleportTabend)
+return TeleportTab
+end)
 
 -- [Tab/ESPTab]
 pcall(function()
@@ -16527,6 +16561,7 @@ function ESPTab.Build(window)
 end
 
 return ESPTab
+
 end)
 
 -- [Tab/CombatTab]
@@ -16738,6 +16773,7 @@ function CombatTab.Build(window)
 end
 
 return CombatTab
+
 end)
 
 -- [Tab/MiscTab]
@@ -17031,6 +17067,7 @@ function MiscTab.Build(window)
 end
 
 return MiscTab
+
 end)
 
 -- [Tab/SettingsTab]
@@ -17237,7 +17274,8 @@ function SettingsTab.Build(window)
     return tab
 end
 
-return SettingsTabend)
+return SettingsTab
+end)
 
 -- ═══════════════════════════════════════════
 -- LOADING SEQUENCE
