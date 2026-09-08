@@ -59,42 +59,41 @@ local function Log(level, module, message)
 end
 
 local function LoadModule(path)
-    local source = nil
-
-    -- 1. Tentar cache local (instantâneo)
+    -- 1. Cache local (instantâneo)
     if readfile and isfile and isfile(path) then
         local cached = readfile(path)
         if cached and cached ~= "" then
-            local fn = loadstring(cached)
-            if fn then
-                return fn()
-            else
-                -- Cache quebrado, deletar
-                if delfile then pcall(delfile, path) end
+            local ok, fn = pcall(loadstring, cached)
+            if ok and fn then
+                local s, r = pcall(fn)
+                if s then return r end
             end
+            if delfile then pcall(delfile, path) end
         end
     end
 
-    -- 2. Baixar do GitHub
-    local ok, rawContent = pcall(function()
-        return game:HttpGet(
-            "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
-            true
-        )
+    -- 2. Baixar do GitHub com timeout
+    local rawContent = nil
+    local downloadThread = task.spawn(function()
+        local ok, content = pcall(function()
+            return game:HttpGet("https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path, true)
+        end)
+        if ok and content then rawContent = content end
     end)
 
-    if ok and rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
-        source = rawContent
-        -- Salvar cache pra próxima vez
-        if writefile then pcall(writefile, path, source) end
+    -- Esperar no máximo 5 segundos pelo download
+    local waited = 0
+    while rawContent == nil and waited < 5 do
+        task.wait(0.1)
+        waited = waited + 0.1
     end
 
-    if source then
-        local fn, err = loadstring(source)
-        if fn then
-            return fn()
-        else
-            warn("[CUZAO] Loadstring error: " .. path .. " - " .. tostring(err))
+    if rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
+        if writefile then pcall(writefile, path, rawContent) end
+        local ok, fn = pcall(loadstring, rawContent)
+        if ok and fn then
+            local s, r = pcall(fn)
+            if s then return r end
         end
     end
 
