@@ -489,8 +489,10 @@ ShowSplash()
 -- Small delay for splash to render
 task.wait(0.5)
 
--- Run in protected mode
-local success, err = pcall(Initialize)
+-- Run in protected mode with stack trace
+local success, err = xpcall(Initialize, function(err)
+    return tostring(err) .. "\n\nSTACK TRACE:\n" .. debug.traceback()
+end)
 if not success then
     Log("ERROR", "Loader", "ERRO CRÍTICO: " .. tostring(err))
     if CUZAO._Splash then
@@ -504,7 +506,7 @@ if not success then
         errGui.Parent = game:GetService("CoreGui")
 
         local errFrame = Instance.new("Frame")
-        errFrame.Size = UDim2.new(0, 500, 0, 200)
+        errFrame.Size = UDim2.new(0, 600, 0, 350)
         errFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
         errFrame.AnchorPoint = Vector2.new(0.5, 0.5)
         errFrame.BackgroundColor3 = Color3.fromRGB(20, 10, 10)
@@ -529,16 +531,17 @@ if not success then
         errTitle.Parent = errFrame
 
         local errMsg = Instance.new("TextLabel")
-        errMsg.Size = UDim2.new(1, -20, 0, 100)
+        errMsg.Size = UDim2.new(1, -20, 0, 130)
         errMsg.Position = UDim2.new(0, 10, 0, 50)
         errMsg.BackgroundTransparency = 1
-        errMsg.Text = "Erro: " .. tostring(err) .. "\n\nAbra o console do executor (F9) pra ver os detalhes."
+        errMsg.Text = "Erro: " .. tostring(err)
         errMsg.TextColor3 = Color3.fromRGB(200, 200, 200)
-        errMsg.TextSize = 12
+        errMsg.TextSize = 10
         errMsg.Font = Enum.Font.Code
         errMsg.TextXAlignment = Enum.TextXAlignment.Left
         errMsg.TextYAlignment = Enum.TextYAlignment.Top
         errMsg.TextWrapped = true
+        errMsg.TextScaled = false
         errMsg.Parent = errFrame
 
         local closeBtn = Instance.new("TextButton")
