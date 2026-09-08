@@ -41,6 +41,9 @@ local Services = {
 
 CUZAO.Services = Services
 
+-- Referências diretas pra uso no splash/progress
+local TweenService = game:GetService("TweenService")
+
 -- ═══════════════════════════════════════════
 -- UTILITY FUNCTIONS
 -- ═══════════════════════════════════════════
