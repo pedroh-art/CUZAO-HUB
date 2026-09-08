@@ -44,9 +44,17 @@ end
 -- ═══════════════════════════════════════════
 local function LoadFile(path)
     local success, result = pcall(function()
-        local source
+        -- 1. Cache local (instantâneo)
+        if readfile and isfile and isfile(path) then
+            local cached = readfile(path)
+            if cached and cached ~= "" then
+                local fn = loadstring(cached)
+                if fn then return fn() end
+                if delfile then pcall(delfile, path) end
+            end
+        end
 
-        -- SEMPRE baixar do GitHub primeiro (versão mais recente)
+        -- 2. Baixar do GitHub
         local ok, rawContent = pcall(function()
             return game:HttpGet(
                 "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
@@ -55,27 +63,10 @@ local function LoadFile(path)
         end)
 
         if ok and rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
-            source = rawContent
-            if writefile then
-                pcall(writefile, path, source)
-            end
-        else
-            -- GitHub falhou, usar cache local
-            if readfile and isfile and isfile(path) then
-                source = readfile(path)
-            end
-        end
-
-        if source and source ~= "" then
-            local fn, err = loadstring(source)
-            if fn then
-                return fn()
-            else
-                warn("[CUZAO] Erro loadstring: " .. path .. " - " .. tostring(err))
-                if delfile and isfile and isfile(path) then
-                    pcall(delfile, path)
-                end
-            end
+            if writefile then pcall(writefile, path, rawContent) end
+            local fn, err = loadstring(rawContent)
+            if fn then return fn() end
+            warn("[CUZAO] Erro loadstring: " .. path .. " - " .. tostring(err))
         end
         return nil
     end)

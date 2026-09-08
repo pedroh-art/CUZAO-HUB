@@ -59,58 +59,46 @@ local function Log(level, module, message)
 end
 
 local function LoadModule(path)
-    local success, result = pcall(function()
-        local source
+    local source = nil
 
-        -- SEMPRE baixar do GitHub primeiro (pegar versão mais recente)
-        local ok, rawContent = pcall(function()
-            return game:HttpGet(
-                "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
-                true -- silent
-            )
-        end)
-
-        if ok and rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
-            source = rawContent
-            -- Salvar/atualizar cache local
-            if writefile then
-                pcall(writefile, path, source)
-            end
-        else
-            -- GitHub falhou ou retornou HTML (404), tentar cache local
-            if readfile and isfile and isfile(path) then
-                source = readfile(path)
-            end
-        end
-
-        if source and source ~= "" then
-            local fn, err = loadstring(source)
+    -- 1. Tentar cache local (instantâneo)
+    if readfile and isfile and isfile(path) then
+        local cached = readfile(path)
+        if cached and cached ~= "" then
+            local fn = loadstring(cached)
             if fn then
                 return fn()
             else
-                -- Cache estava quebrado, deletar e informar
-                warn("[CUZAO] Loadstring error: " .. path .. " - " .. tostring(err))
-                if delfile and isfile and isfile(path) then
-                    pcall(delfile, path)
-                end
-                return nil
+                -- Cache quebrado, deletar
+                if delfile then pcall(delfile, path) end
             end
         end
-        return nil
+    end
+
+    -- 2. Baixar do GitHub
+    local ok, rawContent = pcall(function()
+        return game:HttpGet(
+            "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
+            true
+        )
     end)
 
-    if success and result then
-        Log("SUCCESS", "Loader", "Carregado: " .. path)
-        return result
-    elseif not success then
-        local errMsg = "Falha ao carregar " .. path .. ": " .. tostring(result)
-        Log("ERROR", "Loader", errMsg)
-        table.insert(CUZAO.Errors, errMsg)
-        return nil
-    else
-        Log("WARN", "Loader", "Módulo vazio: " .. path)
-        return nil
+    if ok and rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
+        source = rawContent
+        -- Salvar cache pra próxima vez
+        if writefile then pcall(writefile, path, source) end
     end
+
+    if source then
+        local fn, err = loadstring(source)
+        if fn then
+            return fn()
+        else
+            warn("[CUZAO] Loadstring error: " .. path .. " - " .. tostring(err))
+        end
+    end
+
+    return nil
 end
 
 CUZAO.LoadModule = LoadModule
@@ -308,104 +296,48 @@ local function Initialize()
     CheckGame()
     task.wait(0.3)
 
-    -- Step 2: Core Modules (já devem existir no repo)
+    -- Step 2: Core Modules
     CUZAO._UpdateProgress(15, "Carregando Core Modules...")
     local coreModules = {
-        "Services",
-        "Utilities",
-        "EventBus",
-        "ConfigManager",
-        "Http",
-        "Tween",
-        "Combat",
-        "Inventory",
-        "AntiCheat",
-        "Movement",
+        "Services", "Utilities", "EventBus", "ConfigManager",
+        "Http", "Tween", "Combat", "Inventory", "AntiCheat", "Movement",
     }
-
-    local coreBase = "modules/core/"
     for i, name in ipairs(coreModules) do
         CUZAO._UpdateProgress(15 + (i / #coreModules) * 30, "Core: " .. name)
-        local module = LoadModule(coreBase .. name .. ".lua")
-        if module then
-            CUZAO.Modules[name] = module
-        end
-        task.wait(0.1)
+        local module = LoadModule("modules/core/" .. name .. ".lua")
+        if module then CUZAO.Modules[name] = module end
     end
 
     -- Step 3: UI Modules
     CUZAO._UpdateProgress(50, "Carregando UI...")
-    local uiBase = "modules/ui/"
-    local uiModules = {
-        "Theme",
-        "Library",
-        "Window",
-    }
-
-    for i, name in ipairs(uiModules) do
-        CUZAO._UpdateProgress(50 + (i / #uiModules) * 15, "UI: " .. name)
-        local module = LoadModule(uiBase .. name .. ".lua")
-        if module then
-            CUZAO.Modules[name] = module
-        end
-        task.wait(0.1)
+    for i, name in ipairs({"Theme", "Library", "Window"}) do
+        CUZAO._UpdateProgress(50 + (i / 3) * 15, "UI: " .. name)
+        local module = LoadModule("modules/ui/" .. name .. ".lua")
+        if module then CUZAO.Modules[name] = module end
     end
 
     -- Step 4: Data Modules
     CUZAO._UpdateProgress(65, "Carregando Data...")
-    local dataModules = {
-        "Locations",
-        "Fruits",
-        "Weapons",
-    }
-
-    local dataBase = "data/"
-    for i, name in ipairs(dataModules) do
-        CUZAO._UpdateProgress(65 + (i / #dataModules) * 10, "Data: " .. name)
-        local module = LoadModule(dataBase .. name .. ".lua")
-        if module then
-            CUZAO.Modules[name] = module
-        end
-        task.wait(0.1)
+    for i, name in ipairs({"Locations", "Fruits", "Weapons"}) do
+        CUZAO._UpdateProgress(65 + (i / 3) * 10, "Data: " .. name)
+        local module = LoadModule("data/" .. name .. ".lua")
+        if module then CUZAO.Modules[name] = module end
     end
 
     -- Step 5: Feature Modules
     CUZAO._UpdateProgress(75, "Carregando Features...")
-    local featureCategories = {
-        "AutoFarm",
-        "Raid",
-        "Fruit",
-        "Teleport",
-        "ESP",
-        "Combat",
-        "Misc",
-        "SeaEvents",
-    }
-
-    for i, category in ipairs(featureCategories) do
-        CUZAO._UpdateProgress(75 + (i / #featureCategories) * 10, "Feature: " .. category)
-        local module = LoadModule("modules/features/" .. category .. ".lua")
-        if module then
-            CUZAO.Modules[category] = module
-        end
-        task.wait(0.05)
+    for i, name in ipairs({"AutoFarm", "Raid", "Fruit", "Teleport", "ESP", "Combat", "Misc", "SeaEvents"}) do
+        CUZAO._UpdateProgress(75 + (i / 8) * 10, "Feature: " .. name)
+        local module = LoadModule("modules/features/" .. name .. ".lua")
+        if module then CUZAO.Modules[name] = module end
     end
 
     -- Step 6: Utils
     CUZAO._UpdateProgress(85, "Carregando Utils...")
-    local utils = {
-        "Logger",
-        "Notifications",
-        "Updater",
-    }
-
-    for i, name in ipairs(utils) do
-        CUZAO._UpdateProgress(85 + (i / #utils) * 5, "Utils: " .. name)
+    for i, name in ipairs({"Logger", "Notifications", "Updater"}) do
+        CUZAO._UpdateProgress(85 + (i / 3) * 5, "Utils: " .. name)
         local module = LoadModule("utils/" .. name .. ".lua")
-        if module then
-            CUZAO.Modules[name] = module
-        end
-        task.wait(0.05)
+        if module then CUZAO.Modules[name] = module end
     end
 
     -- Step 7: Build UI
