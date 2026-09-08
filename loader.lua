@@ -270,13 +270,9 @@ local function ShowSplash()
     StatusLabel.Font = Enum.Font.Gotham
     StatusLabel.Parent = Frame
 
-    -- Animate
+    -- Animate (sem TweenService pra evitar erros de cache)
     local function UpdateProgress(percent, text)
-        pcall(function()
-            game:GetService("TweenService"):Create(ProgressBar, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                Size = UDim2.new(percent / 100, 0, 1, 0)
-            }):Play()
-        end)
+        ProgressBar.Size = UDim2.new(percent / 100, 0, 1, 0)
         StatusLabel.Text = math.floor(percent) .. "%"
         if text then
             Sub.Text = text
