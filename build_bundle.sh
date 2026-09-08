@@ -58,6 +58,19 @@ add_mod "modules/ui/Theme.lua" "Theme"
 add_mod "modules/ui/Library.lua" "Library"
 add_mod "modules/ui/Window.lua" "Window"
 
+# Features
+for m in LevelFarm BoneFarm KatakuriFarm; do
+    add_mod "modules/features/AutoFarm/$m.lua" "Feature/AutoFarm/$m"
+done
+add_mod "modules/features/Combat/AutoClicker.lua" "Feature/Combat/AutoClicker"
+for m in PlayerESP FruitESP; do
+    add_mod "modules/features/ESP/$m.lua" "Feature/ESP/$m"
+done
+add_mod "modules/features/Teleport/IslandTP.lua" "Feature/Teleport/IslandTP"
+for m in ServerHop Fly StatAssign; do
+    add_mod "modules/features/Misc/$m.lua" "Feature/Misc/$m"
+done
+
 # Tabs
 for m in MainTab FarmTab RaidTab FruitTab TeleportTab ESPTab CombatTab MiscTab SettingsTab; do
     add_mod "modules/ui/Tabs/$m.lua" "Tab/$m"
@@ -93,6 +106,28 @@ if Library then
                 else
                     tabMod.Build(window)
                 end
+            end)
+        end
+    end
+
+    -- Initialize feature modules
+    local featureNames = {
+        "Feature/AutoFarm/LevelFarm", "Feature/AutoFarm/BoneFarm", "Feature/AutoFarm/KatakuriFarm",
+        "Feature/Combat/AutoClicker",
+        "Feature/ESP/PlayerESP", "Feature/ESP/FruitESP",
+        "Feature/Teleport/IslandTP",
+        "Feature/Misc/ServerHop", "Feature/Misc/Fly", "Feature/Misc/StatAssign",
+    }
+    for _, name in ipairs(featureNames) do
+        local mod = CUZAO.Modules[name]
+        if mod and mod.Initialize then
+            pcall(function()
+                mod:Initialize({
+                    EventBus = CUZAO.Modules["EventBus"],
+                    ConfigManager = CUZAO.Modules["ConfigManager"],
+                    Services = CUZAO.Modules["Services"],
+                    Logger = CUZAO.Modules["Logger"],
+                })
             end)
         end
     end

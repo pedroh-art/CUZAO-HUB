@@ -9675,6 +9675,5450 @@ end
 
 return Windowend)
 
+-- [Feature/AutoFarm/LevelFarm]
+pcall(function()
+--[[
+    CUZAO HUB - Level Farm Module
+    Auto-farm por nível com sistema de quests automático
+    Suporta Sea 1, Sea 2 e Sea 3
+
+    Fluxo principal:
+    1. Detectar nível do jogador
+    2. Encontrar ilha/quest apropriada
+    3. Aceitar quest no NPC
+    4. Teleportar para spawn dos mobs
+    5. Matar mobs até completar quest
+    6. Repetir ciclo
+]]
+
+local LevelFarm = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF_ = Remotes:WaitForChild("CommF_")
+local CommE = Remotes:WaitForChild("CommE")
+
+-- Referências de módulos (injetadas via Initialize)
+local ConfigManager = nil
+local EventBus = nil
+local Combat = nil
+local Movement = nil
+local TweenModule = nil
+local Locations = nil
+local Inventory = nil
+
+-- Estado interno
+LevelFarm._running = false
+LevelFarm._connection = nil
+LevelFarm._attackConnection = nil
+LevelFarm._respawnConnection = nil
+LevelFarm._characterConnection = nil
+LevelFarm._currentQuest = nil
+LevelFarm._currentIsland = nil
+LevelFarm._currentLevel = 0
+LevelFarm._targetLevel = nil
+LevelFarm._killsCount = 0
+LevelFarm._sessionKills = 0
+LevelFarm._sessionStart = 0
+
+-- Referência do personagem
+LevelFarm._root = nil
+LevelFarm._humanoid = nil
+
+-- Configurações padrão
+LevelFarm.Config = {
+    Enabled = false,
+    Weapon = "Melee",
+    Method = "Below",           -- Below, Behind, Above, Tween
+    TweenSpeed = 350,
+    AttackDistance = 15,
+    AutoQuest = true,
+    AutoEquip = true,
+    FastAttack = true,
+    AutoHaki = true,
+    AutoKen = false,
+    BringMobs = false,
+    UseSkills = true,
+    SkillZ = true,
+    SkillX = true,
+    SkillC = true,
+    SkillV = false,
+    SkillF = false,
+    BypassTP = true,
+    StopOnNoQuest = false,
+    TargetLevel = nil,          -- Nível para parar (nil = nunca)
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- DADOS DE QUEST POR NÍVEL
+-- Cada entry: { questName, npcCFrame, mobPositions, levelRange }
+-- ══════════════════════════════════════════════════════════════════
+
+LevelFarm.QuestData = {
+    -- ═══ SEA 1 ═══
+    { questName = "BanditQuest1",           npcCFrame = CFrame.new(1059, 16, 1455),     mobPos = CFrame.new(1097, 16, 1495),     levelRange = {1, 10} },
+    { questName = "MonkeyQuest",            npcCFrame = CFrame.new(-1612, 36, 149),     mobPos = CFrame.new(-1602, 36, 149),     levelRange = {10, 20} },
+    { questName = "GorillaQuest",           npcCFrame = CFrame.new(-1612, 36, 149),     mobPos = CFrame.new(-1624, 36, 145),     levelRange = {20, 30} },
+    { questName = "PirateQuest",            npcCFrame = CFrame.new(-1131, 4, 3828),     mobPos = CFrame.new(-1120, 4, 3830),     levelRange = {30, 40} },
+    { questName = "DesertQuest",            npcCFrame = CFrame.new(944, 6, 4373),       mobPos = CFrame.new(940, 6, 4370),       levelRange = {60, 75} },
+    { questName = "FrozenQuest",            npcCFrame = CFrame.new(1384, 87, -1298),    mobPos = CFrame.new(1380, 87, -1295),    levelRange = {90, 110} },
+    { questName = "SkyQuest",               npcCFrame = CFrame.new(-4968, 717, -2623),  mobPos = CFrame.new(-4970, 717, -2620),  levelRange = {110, 140} },
+    { questName = "PrisonQuest",            npcCFrame = CFrame.new(4875, 5, 734),       mobPos = CFrame.new(4880, 5, 730),       levelRange = {150, 175} },
+    { questName = "ColosseumQuest",         npcCFrame = CFrame.new(-1576, 7, -2983),    mobPos = CFrame.new(-1580, 7, -2980),    levelRange = {175, 210} },
+    { questName = "MagmaQuest",             npcCFrame = CFrame.new(-5247, 12, 8534),    mobPos = CFrame.new(-5245, 12, 8530),    levelRange = {210, 250} },
+    { questName = "UnderwaterQuest",        npcCFrame = CFrame.new(61163, 11, 1819),    mobPos = CFrame.new(61160, 11, 1815),    levelRange = {300, 375} },
+    { questName = "FountainQuest",          npcCFrame = CFrame.new(5256, 39, 4050),     mobPos = CFrame.new(5260, 39, 4055),     levelRange = {375, 450} },
+    { questName = "ForgottenQuest",         npcCFrame = CFrame.new(-3032, 240, -10172), mobPos = CFrame.new(-3030, 240, -10170), levelRange = {450, 525} },
+
+    -- ═══ SEA 2 ═══
+    { questName = "KingdomQuest",           npcCFrame = CFrame.new(-379, 36, 5594),     mobPos = CFrame.new(-380, 36, 5590),     levelRange = {700, 850}, sea = 2 },
+    { questName = "GreenZoneQuest",         npcCFrame = CFrame.new(-2373, 25, -3221),   mobPos = CFrame.new(-2370, 25, -3218),   levelRange = {850, 1000}, sea = 2 },
+    { questName = "GraveyardQuest",         npcCFrame = CFrame.new(-5370, 19, -792),    mobPos = CFrame.new(-5370, 19, -790),    levelRange = {1000, 1150}, sea = 2 },
+    { questName = "SnowMountainQuest",      npcCFrame = CFrame.new(647, 400, -13000),   mobPos = CFrame.new(645, 400, -13000),   levelRange = {1150, 1300}, sea = 2 },
+    { questName = "HotColdQuest",           npcCFrame = CFrame.new(6540, 50, -13100),   mobPos = CFrame.new(6540, 50, -13100),   levelRange = {1250, 1450}, sea = 2 },
+    { questName = "CursedShipQuest",        npcCFrame = CFrame.new(923, 125, 32800),    mobPos = CFrame.new(920, 125, 32800),    levelRange = {1450, 1550}, sea = 2 },
+
+    -- ═══ SEA 3 ═══
+    { questName = "PortTownQuest",          npcCFrame = CFrame.new(-290, 44, 5590),     mobPos = CFrame.new(-290, 44, 5590),     levelRange = {1700, 1850}, sea = 3 },
+    { questName = "HydraQuest",             npcCFrame = CFrame.new(5746, 610, -253),    mobPos = CFrame.new(5746, 610, -253),    levelRange = {1850, 2000}, sea = 3 },
+    { questName = "GreatTreeQuest",         npcCFrame = CFrame.new(2681, 1682, -7190),  mobPos = CFrame.new(2681, 1682, -7190),  levelRange = {1950, 2100}, sea = 3 },
+    { questName = "TikiOutpostQuest",       npcCFrame = CFrame.new(-16400, 350, -500),  mobPos = CFrame.new(-16400, 350, -500),  levelRange = {2100, 2250}, sea = 3 },
+    { questName = "KitsuneQuest",           npcCFrame = CFrame.new(-1598, 245, -1254),  mobPos = CFrame.new(-1598, 245, -1254),  levelRange = {2250, 2400}, sea = 3 },
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Obtém o nível atual do jogador de forma confiável
+    Nunca usar valor cacheado — sempre consultar Data
+]]
+local function GetLevel()
+    local ok, v = pcall(function()
+        return LocalPlayer.Data.Level.Value
+    end)
+    return ok and v or 0
+end
+
+--[[
+    Garante que o personagem existe e tem HumanoidRootPart
+    Retorna: rootPart, humanoid (ou nil, nil se falhar)
+]]
+local function EnsureCharacter()
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local root = char:WaitForChild("HumanoidRootPart", 30)
+        local hum = char:WaitForChild("Humanoid", 30)
+        return root, hum
+    end
+    return char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
+end
+
+--[[
+    Busca a quest apropriada para o nível atual
+    Retorna: table da quest ou nil
+]]
+local function GetQuestForLevel(level)
+    local currentSea = 1
+    if Locations then
+        currentSea = Locations:GetCurrentSea()
+    end
+
+    -- Procurar quest que cubra o nível atual
+    for _, quest in ipairs(LevelFarm.QuestData) do
+        local minLv = quest.levelRange[1]
+        local maxLv = quest.levelRange[2]
+        local questSea = quest.sea or 1
+
+        if questSea <= currentSea and level >= minLv and level <= maxLv then
+            return quest
+        end
+    end
+
+    -- Fallback: pegar a quest com range mais próximo
+    local bestQuest = nil
+    local bestDist = math.huge
+
+    for _, quest in ipairs(LevelFarm.QuestData) do
+        local questSea = quest.sea or 1
+        if questSea <= currentSea then
+            local midLevel = (quest.levelRange[1] + quest.levelRange[2]) / 2
+            local dist = math.abs(level - midLevel)
+            if dist < bestDist then
+                bestDist = dist
+                bestQuest = quest
+            end
+        end
+    end
+
+    return bestQuest
+end
+
+--[[
+    Verifica se há quest ativa no GUI
+    Retorna: nome da quest ativa ou nil
+]]
+local function GetActiveQuest()
+    local success, questName = pcall(function()
+        local questGui = LocalPlayer.PlayerGui.Main.Quest
+        if questGui and questGui.Visible then
+            local title = questGui.Container.QuestTitle.Title
+            if title then
+                return title.Text
+            end
+        end
+        return nil
+    end)
+    return success and questName or nil
+end
+
+--[[
+    Aceita uma quest específica
+]]
+local function AcceptQuest(questName)
+    local success, err = pcall(function()
+        CommF_:InvokeServer("AcceptQuest", questName)
+    end)
+    if not success then
+        warn("[LevelFarm] Erro ao aceitar quest '" .. tostring(questName) .. "': " .. tostring(err))
+    end
+    return success
+end
+
+--[[
+    Abandonar quest atual
+]]
+local function AbandonQuest()
+    local success, err = pcall(function()
+        CommF_:InvokeServer("AbandonQuest")
+    end)
+    if not success then
+        warn("[LevelFarm] Erro ao abandonar quest: " .. tostring(err))
+    end
+    return success
+end
+
+--[[
+    Equipar arma do tipo configurado
+]]
+local function EquipWeapon(weaponType)
+    weaponType = weaponType or LevelFarm.Config.Weapon
+
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChild("Humanoid")
+
+    if not backpack or not humanoid then return false end
+
+    local priorities = {
+        Melee = {"Godhuman", "Superhuman", "Death Step", "Electric Claw", "Dragon Talon", "Sharkman Karate", "Black Leg", "Combat"},
+        Sword = {"Cursed Dual Katana", "Tushita", "Yama", "Hallow Scythe", "Saber", "Buddy Sword", "Dual Katana", "Katana", "Cutlass"},
+        Gun = {"Acidum Rifle", "Serpent Bow", "Kabucha", "Soul Guitar", "Bazooka", "Cannon", "Flintlock"},
+    }
+
+    local weaponList = priorities[weaponType] or priorities.Melee
+
+    for _, weaponName in ipairs(weaponList) do
+        local tool = backpack:FindFirstChild(weaponName)
+        if tool then
+            humanoid:EquipTool(tool)
+            return true
+        end
+    end
+
+    -- Fallback: primeira tool disponível
+    local tool = backpack:FindFirstChildOfClass("Tool")
+    if tool then
+        humanoid:EquipTool(tool)
+        return true
+    end
+
+    return false
+end
+
+--[[
+    Coletar posições dos mobs da quest no workspace
+    Retorna array de CFrames dos mobs vivos
+]]
+local function GetMobPositions(mobName)
+    local positions = {}
+
+    pcall(function()
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+
+        for _, mob in ipairs(enemies:GetChildren()) do
+            if mob:IsA("Model") and mob.Name == mobName then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                local rootPart = mob:FindFirstChild("HumanoidRootPart")
+                if humanoid and rootPart and humanoid.Health > 0 then
+                    table.insert(positions, {
+                        CFrame = rootPart.CFrame,
+                        Model = mob,
+                        Health = humanoid.Health,
+                        MaxHealth = humanoid.MaxHealth,
+                    })
+                end
+            end
+        end
+    end)
+
+    return positions
+end
+
+--[[
+    Encontrar mob mais próximo
+]]
+local function GetNearestMob(mobName, maxDistance)
+    local root = LevelFarm._root
+    if not root then return nil end
+
+    maxDistance = maxDistance or 500
+    local nearest = nil
+    local nearestDist = maxDistance
+
+    pcall(function()
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+
+        for _, mob in ipairs(enemies:GetChildren()) do
+            if mob:IsA("Model") and mob.Name == mobName then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+                if humanoid and mobRoot and humanoid.Health > 0 then
+                    local dist = (root.Position - mobRoot.Position).Magnitude
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearest = mob
+                    end
+                end
+            end
+        end
+    end)
+
+    return nearest
+end
+
+--[[
+    Posicionar personagem em relação ao mob (baseado no método configurado)
+]]
+local function PositionToMob(mobModel, method)
+    local root = LevelFarm._root
+    if not root or not mobModel then return end
+
+    local mobRoot = mobModel:FindFirstChild("HumanoidRootPart")
+    if not mobRoot then return end
+
+    local targetCFrame
+
+    if method == "Below" then
+        -- Ficar abaixo do mob
+        local mobPos = mobRoot.Position
+        local belowPos = Vector3.new(mobPos.X, mobPos.Y - 10, mobPos.Z)
+        targetCFrame = CFrame.new(belowPos)
+    elseif method == "Behind" then
+        -- Ficar atrás do mob
+        targetCFrame = mobRoot.CFrame * CFrame.new(0, 0, 5)
+    elseif method == "Above" then
+        -- Ficar acima do mob
+        local mobPos = mobRoot.Position
+        local abovePos = Vector3.new(mobPos.X, mobPos.Y + 15, mobPos.Z)
+        targetCFrame = CFrame.new(abovePos)
+    else
+        -- Default: acima
+        targetCFrame = mobRoot.CFrame * CFrame.new(0, 30, 0)
+    end
+
+    -- Aplicar teleport direto (rápido) ou suavizado
+    root.CFrame = targetCFrame
+end
+
+--[[
+    Atacar mob específico usando os remotes do jogo
+]]
+local function AttackMob(mobModel)
+    if not mobModel then return end
+
+    local root = LevelFarm._root
+    if not root then return end
+
+    local mobRoot = mobModel:FindFirstChild("HumanoidRootPart")
+    if not mobRoot then return end
+
+    -- Olhar para o mob
+    root.CFrame = CFrame.new(root.Position, Vector3.new(mobRoot.Position.X, root.Position.Y, mobRoot.Position.Z))
+
+    -- Equipar arma
+    if LevelFarm.Config.AutoEquip then
+        EquipWeapon(LevelFarm.Config.Weapon)
+    end
+
+    -- Fast Attack usando remotes
+    if LevelFarm.Config.FastAttack then
+        local character = LocalPlayer.Character
+        if character then
+            local tool = character:FindFirstChildOfClass("Tool")
+            if tool then
+                -- Ataque rápido via RegisterAttack/RegisterHit
+                pcall(function()
+                    local registerAttack = Remotes:FindFirstChild("RegisterAttack")
+                    local registerHit = Remotes:FindFirstChild("RegisterHit")
+                    if registerAttack and registerHit then
+                        registerAttack:FireServer(0)
+                        registerHit:FireServer(mobRoot, {mobModel})
+                    end
+                end)
+            end
+        end
+    end
+
+    -- Click para atacar (fallback)
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+    task.wait(0.01)
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+end
+
+--[[
+    Usar habilidades configuradas
+]]
+local function UseSkills()
+    if not LevelFarm.Config.UseSkills then return end
+
+    local skills = {
+        {key = "Z", enabled = LevelFarm.Config.SkillZ},
+        {key = "X", enabled = LevelFarm.Config.SkillX},
+        {key = "C", enabled = LevelFarm.Config.SkillC},
+        {key = "V", enabled = LevelFarm.Config.SkillV},
+        {key = "F", enabled = LevelFarm.Config.SkillF},
+    }
+
+    for _, skill in ipairs(skills) do
+        if skill.enabled then
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, skill.key, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, skill.key, false, game)
+            end)
+        end
+    end
+end
+
+--[[
+    Ativar Buso Haki se disponível
+]]
+local function ActivateHaki()
+    if not LevelFarm.Config.AutoHaki then return end
+    pcall(function()
+        CommF_:InvokeServer("Buso")
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- LOOP PRINCIPAL DO FARM
+-- ══════════════════════════════════════════════════════════════════
+
+function LevelFarm:Start()
+    if self._running then
+        warn("[LevelFarm] Farm já está em execução")
+        return false
+    end
+
+    -- Sincronizar config com ConfigManager
+    if ConfigManager then
+        local cfg = ConfigManager:Get("AutoFarm")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then
+                    self.Config[k] = v
+                end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+    self._sessionKills = 0
+    self._currentLevel = GetLevel()
+
+    -- Garantir personagem
+    local root, hum = EnsureCharacter()
+    self._root = root
+    self._humanoid = hum
+
+    -- Conectar respawn do personagem
+    self._respawnConnection = LocalPlayer.CharacterAdded:Connect(function(char)
+        self._root = char:WaitForChild("HumanoidRootPart", 30)
+        self._humanoid = char:WaitForChild("Humanoid", 30)
+        task.wait(1) -- Esperar carregar
+        self:OnCharacterRespawned()
+    end)
+
+    -- Ativar haki
+    if self.Config.AutoHaki then
+        ActivateHaki()
+    end
+
+    print("[LevelFarm] Farm iniciado | Nível: " .. self._currentLevel .. " | Método: " .. self.Config.Method)
+
+    -- Emitir evento
+    if EventBus then
+        EventBus:Emit("AutoFarm.Level.Started", {
+            Level = self._currentLevel,
+            Method = self.Config.Method,
+        })
+    end
+
+    -- Iniciar loop principal
+    self._connection = task.spawn(function()
+        self:MainLoop()
+    end)
+
+    return true
+end
+
+function LevelFarm:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    -- Cancelar loops
+    if self._connection then
+        task.cancel(self._connection)
+        self._connection = nil
+    end
+
+    if self._attackConnection then
+        task.cancel(self._attackConnection)
+        self._attackConnection = nil
+    end
+
+    -- Desconectar eventos
+    if self._respawnConnection then
+        self._respawnConnection:Disconnect()
+        self._respawnConnection = nil
+    end
+
+    if self._characterConnection then
+        self._characterConnection:Disconnect()
+        self._characterConnection = nil
+    end
+
+    -- Abandonar quest ativa
+    if self._currentQuest then
+        AbandonQuest()
+        self._currentQuest = nil
+    end
+
+    print("[LevelFarm] Farm parado | Kills na sessão: " .. self._sessionKills)
+
+    if EventBus then
+        EventBus:Emit("AutoFarm.Level.Stopped", {
+            Kills = self._sessionKills,
+            Level = GetLevel(),
+            SessionTime = tick() - self._sessionStart,
+        })
+    end
+
+    return true
+end
+
+function LevelFarm:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- LOOP PRINCIPAL
+-- ══════════════════════════════════════════════════════════════════
+
+function LevelFarm:MainLoop()
+    while self._running do
+        -- Verificar se atingiu nível alvo
+        local currentLevel = GetLevel()
+        self._currentLevel = currentLevel
+
+        if self.Config.TargetLevel and currentLevel >= self.Config.TargetLevel then
+            print("[LevelFarm] Nível alvo atingido: " .. currentLevel .. "/" .. self.Config.TargetLevel)
+            self:Stop()
+            return
+        end
+
+        -- Verificar personagem
+        if not self._root or not self._root.Parent then
+            local root, hum = EnsureCharacter()
+            self._root = root
+            self._humanoid = hum
+            task.wait(1)
+            continue
+        end
+
+        -- Verificar se morreu
+        if self._humanoid and self._humanoid.Health <= 0 then
+            task.wait(3) -- Esperar respawn
+            continue
+        end
+
+        -- Buscar quest apropriada
+        local questData = GetQuestForLevel(currentLevel)
+
+        if not questData then
+            if self.Config.StopOnNoQuest then
+                warn("[LevelFarm] Nenhuma quest encontrada para nível " .. currentLevel)
+                self:Stop()
+                return
+            end
+            warn("[LevelFarm] Nenhuma quest encontrada, aguardando...")
+            task.wait(5)
+            continue
+        end
+
+        -- Verificar se precisa aceitar quest
+        if self.Config.AutoQuest then
+            local activeQuest = GetActiveQuest()
+
+            if not activeQuest or activeQuest ~= questData.questName then
+                -- Abandonar quest anterior se existir
+                if activeQuest then
+                    AbandonQuest()
+                    task.wait(0.5)
+                end
+
+                -- Aceitar nova quest
+                AcceptQuest(questData.questName)
+                self._currentQuest = questData.questName
+                task.wait(1)
+            end
+        end
+
+        -- Encontrar mobs da quest
+        local questMobs = self:GetQuestMobs(questData)
+
+        if #questMobs == 0 then
+            -- Nenhum mob vivo, teleportar para spawn
+            self._root.CFrame = questData.mobPos * CFrame.new(0, 10, 0)
+            task.wait(1.5)
+            continue
+        end
+
+        -- Atacar mobs
+        self:AttackQuestMobs(questMobs, questData)
+
+        -- Delay entre ciclos
+        task.wait(0.1)
+    end
+end
+
+--[[
+    Obter mobs da quest atual
+]]
+function LevelFarm:GetQuestMobs(questData)
+    local mobs = {}
+
+    pcall(function()
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+
+        -- Nome do mob baseado no nome da quest
+        -- Remover "Quest" do final e capitalizar
+        local mobName = questData.questName:gsub("Quest", "")
+
+        for _, mob in ipairs(enemies:GetChildren()) do
+            if mob:IsA("Model") then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+
+                if humanoid and mobRoot and humanoid.Health > 0 then
+                    -- Verificar se é da quest (nome ou distância)
+                    local isQuestMob = false
+
+                    -- Verificar por nome parcial
+                    if mobName:lower():find(mob.Name:lower()) or mob.Name:lower():find(mobName:lower()) then
+                        isQuestMob = true
+                    end
+
+                    -- Verificar por distância do spawn
+                    if not isQuestMob then
+                        local dist = (mobRoot.Position - questData.mobPos.Position).Magnitude
+                        if dist < 150 then
+                            isQuestMob = true
+                        end
+                    end
+
+                    if isQuestMob then
+                        table.insert(mobs, {
+                            Model = mob,
+                            RootPart = mobRoot,
+                            Distance = (self._root.Position - mobRoot.Position).Magnitude,
+                            Health = humanoid.Health,
+                            MaxHealth = humanoid.MaxHealth,
+                        })
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Ordenar por distância
+    table.sort(mobs, function(a, b) return a.Distance < b.Distance end)
+
+    return mobs
+end
+
+--[[
+    Atacar todos os mobs da quest
+]]
+function LevelFarm:AttackQuestMobs(mobs, questData)
+    for _, mobData in ipairs(mobs) do
+        if not self._running then break end
+
+        -- Verificar se mob ainda está vivo
+        if not mobData.Model or not mobData.Model.Parent then continue end
+        local humanoid = mobData.Model:FindFirstChild("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then
+            self._sessionKills = self._sessionKills + 1
+            continue
+        end
+
+        -- Reposicionar perto do mob
+        PositionToMob(mobData.Model, self.Config.Method)
+
+        -- Atacar
+        AttackMob(mobData.Model)
+
+        -- Usar skills a cada poucos hits
+        if math.random(1, 3) == 1 then
+            UseSkills()
+        end
+
+        task.wait(0.05)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CALLBACKS
+-- ══════════════════════════════════════════════════════════════════
+
+function LevelFarm:OnCharacterRespawned()
+    if not self._running then return end
+
+    print("[LevelFarm] Personagem respawning, reajustando...")
+
+    -- Esperar carregar
+    task.wait(2)
+
+    -- Reativar haki
+    if self.Config.AutoHaki then
+        ActivateHaki()
+    end
+
+    -- Atualizar referências
+    local root, hum = EnsureCharacter()
+    self._root = root
+    self._humanoid = hum
+
+    -- Emitir evento
+    if EventBus then
+        EventBus:Emit("AutoFarm.Level.Respawned", {
+            Level = GetLevel(),
+        })
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- API DE CONFIGURAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function LevelFarm:SetMethod(method)
+    self.Config.Method = method
+    print("[LevelFarm] Método alterado para: " .. method)
+end
+
+function LevelFarm:SetTargetLevel(level)
+    self.Config.TargetLevel = level
+    print("[LevelFarm] Nível alvo definido: " .. tostring(level))
+end
+
+function LevelFarm:SetWeapon(weaponType)
+    self.Config.Weapon = weaponType
+    print("[LevelFarm] Arma definida: " .. weaponType)
+end
+
+function LevelFarm:SetTweenSpeed(speed)
+    self.Config.TweenSpeed = speed
+end
+
+function LevelFarm:GetStatus()
+    return {
+        Running = self._running,
+        Level = self._currentLevel,
+        TargetLevel = self.Config.TargetLevel,
+        CurrentQuest = self._currentQuest,
+        SessionKills = self._sessionKills,
+        SessionTime = tick() - self._sessionStart,
+        Method = self.Config.Method,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function LevelFarm:Initialize(deps)
+    deps = deps or {}
+
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+    Combat = deps.Combat
+    Movement = deps.Movement
+    TweenModule = deps.TweenModule
+    Locations = deps.Locations
+    Inventory = deps.Inventory
+
+    -- Escutar eventos
+    if EventBus then
+        EventBus:On("AutoFarm.Level.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+
+        EventBus:On("AutoFarm.Level.UpdateConfig", function(cfg)
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then
+                    self.Config[k] = v
+                end
+            end
+        end)
+    end
+
+    print("[LevelFarm] Módulo inicializado")
+    return true
+end
+
+function LevelFarm:Cleanup()
+    self:Stop()
+
+    if EventBus then
+        EventBus:Clear("AutoFarm.Level.Toggle")
+        EventBus:Clear("AutoFarm.Level.UpdateConfig")
+    end
+
+    print("[LevelFarm] Módulo limpo")
+end
+
+return LevelFarm
+end)
+
+-- [Feature/AutoFarm/BoneFarm]
+pcall(function()
+--[[
+    CUZAO HUB - Bone Farm Module
+    Farm de ossos na area Haunted Castle (Sea 3)
+
+    Localização: Spawn Point (-8764, 142, 5963)
+    NPCs de quest:
+    - Reborn Skeleton
+    - Living Zombie
+    - Demonic Soul
+    - Possessed Mummy
+
+    Recompensas:
+    - Bones (moeda de evento)
+    - Pray no gravestone: CommF_:InvokeServer("gravestoneEvent", 2)
+    - Lucky no gravestone: CommF_:InvokeServer("gravestoneEvent", 1)
+]]
+
+local BoneFarm = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF_ = Remotes:WaitForChild("CommF_")
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+BoneFarm._running = false
+BoneFarm._connection = nil
+BoneFarm._respawnConnection = nil
+BoneFarm._root = nil
+BoneFarm._humanoid = nil
+BoneFarm._bonesCount = 0
+BoneFarm._sessionKills = 0
+BoneFarm._sessionStart = 0
+
+-- Localização do Haunted Castle
+BoneFarm.HauntedCastle = {
+    SpawnPos = CFrame.new(-8764, 142, 5963),
+    QuestNPC = CFrame.new(-8750, 152, 5907),
+    MobsArea = {
+        CFrame.new(-8764, 142, 5963),
+        CFrame.new(-8793, 142, 5944),
+        CFrame.new(-8746, 142, 5927),
+        CFrame.new(-8808, 142, 5960),
+        CFrame.new(-8735, 142, 5973),
+        CFrame.new(-8782, 142, 5993),
+        CFrame.new(-8812, 142, 5985),
+    },
+    Gravestone = CFrame.new(-8750, 142, 5907),
+}
+
+-- Mobs da quest
+BoneFarm.MobNames = {
+    "Reborn Skeleton",
+    "Living Zombie",
+    "Demonic Soul",
+    "Possessed Mummy",
+}
+
+-- Configurações
+BoneFarm.Config = {
+    Enabled = false,
+    Method = "Below",
+    TweenSpeed = 350,
+    AttackDistance = 20,
+    AutoQuest = true,
+    AutoEquip = true,
+    FastAttack = true,
+    AutoHaki = true,
+    AutoPray = false,           -- Auto rezar no gravestone
+    AutoLucky = false,          -- Auto lucky no gravestone
+    AutoCollectBones = true,
+    UseSkills = true,
+    SkillZ = true,
+    SkillX = true,
+    SkillC = true,
+    SkillV = false,
+    BringMobs = true,
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+local function GetLevel()
+    local ok, v = pcall(function()
+        return LocalPlayer.Data.Level.Value
+    end)
+    return ok and v or 0
+end
+
+local function EnsureCharacter()
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        return char:WaitForChild("HumanoidRootPart", 30), char:WaitForChild("Humanoid", 30)
+    end
+    return char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
+end
+
+local function EquipWeapon(weaponType)
+    weaponType = weaponType or "Melee"
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+    if not backpack or not humanoid then return false end
+
+    local priorities = {
+        Melee = {"Godhuman", "Superhuman", "Death Step", "Electric Claw", "Dragon Talon", "Combat"},
+        Sword = {"Cursed Dual Katana", "Tushita", "Yama", "Hallow Scythe", "Saber"},
+        Gun = {"Acidum Rifle", "Serpent Bow", "Soul Guitar"},
+    }
+
+    local weaponList = priorities[weaponType] or priorities.Melee
+    for _, name in ipairs(weaponList) do
+        local tool = backpack:FindFirstChild(name)
+        if tool then humanoid:EquipTool(tool) return true end
+    end
+
+    local fallback = backpack:FindFirstChildOfClass("Tool")
+    if fallback then humanoid:EquipTool(fallback) return true end
+    return false
+end
+
+--[[
+    Obter mobs da área do Haunted Castle
+]]
+local function GetBoneMobs()
+    local mobs = {}
+    local root = BoneFarm._root
+    if not root then return mobs end
+
+    pcall(function()
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+
+        for _, mob in ipairs(enemies:GetChildren()) do
+            if mob:IsA("Model") then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+
+                if humanoid and mobRoot and humanoid.Health > 0 then
+                    -- Verificar se é mob do bone farm
+                    for _, name in ipairs(BoneFarm.MobNames) do
+                        if mob.Name == name or mob.Name:find(name) then
+                            local dist = (root.Position - mobRoot.Position).Magnitude
+                            table.insert(mobs, {
+                                Model = mob,
+                                RootPart = mobRoot,
+                                Name = mob.Name,
+                                Distance = dist,
+                                Health = humanoid.Health,
+                                MaxHealth = humanoid.MaxHealth,
+                            })
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    table.sort(mobs, function(a, b) return a.Distance < b.Distance end)
+    return mobs
+end
+
+--[[
+    Aceitar quest de bone
+]]
+local function AcceptBoneQuest()
+    local success, err = pcall(function()
+        CommF_:InvokeServer("AcceptQuest", "HauntedQuest")
+    end)
+    if not success then
+        warn("[BoneFarm] Erro ao aceitar quest: " .. tostring(err))
+    end
+    return success
+end
+
+--[[
+    Verificar se tem quest ativa
+]]
+local function HasActiveQuest()
+    local ok, result = pcall(function()
+        local questGui = LocalPlayer.PlayerGui.Main.Quest
+        if questGui and questGui.Visible then
+            local title = questGui.Container.QuestTitle.Title
+            if title and title.Text and title.Text:find("Haunted") then
+                return true
+            end
+        end
+        return false
+    end)
+    return ok and result or false
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- SISTEMA DE COLETA DE BONES
+-- ══════════════════════════════════════════════════════════════════
+
+function BoneFarm:CollectBones()
+    pcall(function()
+        -- Verificar se há bones no chão
+        local boneFolder = Workspace:FindFirstChild("Bones")
+        if boneFolder then
+            for _, bone in ipairs(boneFolder:GetChildren()) do
+                if bone:IsA("BasePart") or bone:IsA("Model") then
+                    local boneRoot = bone.PrimaryPart or bone:FindFirstChild("Handle") or bone
+                    if boneRoot and boneRoot:IsA("BasePart") then
+                        local dist = (self._root.Position - boneRoot.Position).Magnitude
+                        if dist < 50 then
+                            -- Puxar bone via CFrame
+                            self._root.CFrame = CFrame.new(boneRoot.Position + Vector3.new(0, 3, 0))
+                            task.wait(0.2)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+--[[
+    Usar gravestone (rezar ou lucky)
+]]
+function BoneFarm:UseGravestone(action)
+    local success, err = pcall(function()
+        if action == "pray" then
+            CommF_:InvokeServer("gravestoneEvent", 2)
+        elseif action == "lucky" then
+            CommF_:InvokeServer("gravestoneEvent", 1)
+        end
+    end)
+
+    if not success then
+        warn("[BoneFarm] Erro no gravestone: " .. tostring(err))
+    end
+    return success
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES PRINCIPAIS
+-- ══════════════════════════════════════════════════════════════════
+
+function BoneFarm:Start()
+    if self._running then return false end
+
+    -- Verificar se está no Sea 3
+    local currentSea = 1
+    pcall(function()
+        local Locations = getgenv().CUZAO and getgenv().CUZAO.Modules["Locations"]
+        if Locations then currentSea = Locations:GetCurrentSea() end
+    end)
+    if currentSea < 3 then
+        warn("[BoneFarm] Requer Sea 3. Sea atual: " .. currentSea)
+        return false
+    end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("BoneFarm")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+    self._sessionKills = 0
+
+    local root, hum = EnsureCharacter()
+    self._root = root
+    self._humanoid = hum
+
+    -- Conectar respawn
+    self._respawnConnection = LocalPlayer.CharacterAdded:Connect(function(char)
+        self._root = char:WaitForChild("HumanoidRootPart", 30)
+        self._humanoid = char:WaitForChild("Humanoid", 30)
+        task.wait(2)
+    end)
+
+    -- Teleportar para Haunted Castle
+    if self._root then
+        self._root.CFrame = self.HauntedCastle.SpawnPos
+        task.wait(1)
+    end
+
+    -- Ativar Haki
+    if self.Config.AutoHaki then
+        pcall(function() CommF_:InvokeServer("Buso") end)
+    end
+
+    print("[BoneFarm] Farm iniciado | Sea 3 - Haunted Castle")
+
+    if EventBus then
+        EventBus:Emit("AutoFarm.Bone.Started")
+    end
+
+    self._connection = task.spawn(function()
+        self:MainLoop()
+    end)
+
+    return true
+end
+
+function BoneFarm:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    if self._connection then
+        task.cancel(self._connection)
+        self._connection = nil
+    end
+
+    if self._respawnConnection then
+        self._respawnConnection:Disconnect()
+        self._respawnConnection = nil
+    end
+
+    -- Abandonar quest
+    pcall(function() CommF_:InvokeServer("AbandonQuest") end)
+
+    print("[BoneFarm] Farm parado | Kills: " .. self._sessionKills)
+
+    if EventBus then
+        EventBus:Emit("AutoFarm.Bone.Stopped", {
+            Kills = self._sessionKills,
+            SessionTime = tick() - self._sessionStart,
+        })
+    end
+
+    return true
+end
+
+function BoneFarm:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- LOOP PRINCIPAL
+-- ══════════════════════════════════════════════════════════════════
+
+function BoneFarm:MainLoop()
+    while self._running do
+        -- Verificar personagem
+        if not self._root or not self._root.Parent then
+            local root, hum = EnsureCharacter()
+            self._root = root
+            self._humanoid = hum
+            task.wait(1)
+            continue
+        end
+
+        -- Verificar morte
+        if self._humanoid and self._humanoid.Health <= 0 then
+            task.wait(3)
+            continue
+        end
+
+        -- Aceitar quest se necessário
+        if self.Config.AutoQuest and not HasActiveQuest() then
+            AcceptBoneQuest()
+            task.wait(1)
+        end
+
+        -- Encontrar mobs
+        local mobs = GetBoneMobs()
+
+        if #mobs == 0 then
+            -- Nenhum mob, reposicionar
+            local randomIdx = math.random(1, #self.HauntedCastle.MobsArea)
+            self._root.CFrame = self.HauntedCastle.MobsArea[randomIdx]
+            task.wait(1.5)
+            continue
+        end
+
+        -- Coletar bones se habilitado
+        if self.Config.AutoCollectBones then
+            self:CollectBones()
+        end
+
+        -- Atacar mobs
+        for _, mobData in ipairs(mobs) do
+            if not self._running then break end
+
+            -- Verificar mob vivo
+            if not mobData.Model or not mobData.Model.Parent then continue end
+            local hum = mobData.Model:FindFirstChild("Humanoid")
+            if not hum or hum.Health <= 0 then
+                self._sessionKills = self._sessionKills + 1
+                continue
+            end
+
+            -- Posicionar
+            local mobCFrame = mobData.RootPart.CFrame
+            if self.Config.Method == "Below" then
+                self._root.CFrame = CFrame.new(mobCFrame.Position + Vector3.new(0, -10, 0))
+            else
+                self._root.CFrame = mobCFrame * CFrame.new(0, 0, 5)
+            end
+
+            -- Equipar arma
+            if self.Config.AutoEquip then
+                EquipWeapon("Melee")
+            end
+
+            -- Atacar
+            self:AttackMob(mobData.Model, mobData.RootPart)
+
+            -- Skills
+            if self.Config.UseSkills and math.random(1, 4) == 1 then
+                self:UseSkills()
+            end
+
+            task.wait(0.05)
+        end
+
+        -- Usar gravestone periodicamente
+        if self.Config.AutoPray and math.random(1, 50) == 1 then
+            self:UseGravestone("pray")
+            task.wait(1)
+        end
+
+        if self.Config.AutoLucky and math.random(1, 100) == 1 then
+            self:UseGravestone("lucky")
+            task.wait(1)
+        end
+
+        task.wait(0.1)
+    end
+end
+
+function BoneFarm:AttackMob(model, rootPart)
+    if not model or not rootPart then return end
+
+    if self._root then
+        self._root.CFrame = CFrame.new(self._root.Position, Vector3.new(rootPart.Position.X, self._root.Position.Y, rootPart.Position.Z))
+    end
+
+    if self.Config.FastAttack then
+        pcall(function()
+            local registerAttack = Remotes:FindFirstChild("RegisterAttack")
+            local registerHit = Remotes:FindFirstChild("RegisterHit")
+            if registerAttack and registerHit then
+                registerAttack:FireServer(0)
+                registerHit:FireServer(rootPart, {model})
+            end
+        end)
+    end
+
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+    task.wait(0.01)
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+end
+
+function BoneFarm:UseSkills()
+    local skills = {
+        {key = "Z", enabled = self.Config.SkillZ},
+        {key = "X", enabled = self.Config.SkillX},
+        {key = "C", enabled = self.Config.SkillC},
+        {key = "V", enabled = self.Config.SkillV},
+    }
+    for _, skill in ipairs(skills) do
+        if skill.enabled then
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, skill.key, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, skill.key, false, game)
+            end)
+        end
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function BoneFarm:GetStatus()
+    return {
+        Running = self._running,
+        SessionKills = self._sessionKills,
+        SessionTime = tick() - self._sessionStart,
+        AutoPray = self.Config.AutoPray,
+        AutoLucky = self.Config.AutoLucky,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function BoneFarm:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    if EventBus then
+        EventBus:On("AutoFarm.Bone.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+    end
+
+    print("[BoneFarm] Módulo inicializado")
+    return true
+end
+
+function BoneFarm:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("AutoFarm.Bone.Toggle")
+    end
+    print("[BoneFarm] Módulo limpo")
+end
+
+return BoneFarm
+end)
+
+-- [Feature/AutoFarm/KatakuriFarm]
+pcall(function()
+--[[
+    CUZAO HUB - Katakuri / Cake Farm Module
+    Farm do Cake Prince no Sea 3
+
+    Localização: Whole Cake Island
+    Posição: CFrame.new(-1970, 45, -12330)
+
+    Mobs:
+    - Peanut Scout
+    - Peanut President
+    - Ice Cream Chef
+    - Cake Guard
+    - Baking Staff
+    - Head Baker
+    - Chocolate Battler
+    - Candy Crawler
+
+    Boss: Cake Prince
+    - Spawna após 500 kills
+    - CommF_:InvokeServer("CakePrinceSpawner") para verificar progresso
+
+    Katakuri (Dough V2):
+    - Dropa do Cake Prince
+    - CommF_:InvokeServer("CakePrinceSpawner") retorna nil quando spawnado
+]]
+
+local KatakuriFarm = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF_ = Remotes:WaitForChild("CommF_")
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+KatakuriFarm._running = false
+KatakuriFarm._connection = nil
+KatakuriFarm._respawnConnection = nil
+KatakuriFarm._root = nil
+KatakuriFarm._humanoid = nil
+KatakuriFarm._sessionKills = 0
+KatakuriFarm._sessionStart = 0
+KatakuriFarm._princeKills = 0
+KatakuriFarm._princeSpawned = false
+
+-- Localização
+KatakuriFarm.Location = {
+    IslandCenter = CFrame.new(-1970, 45, -12330),
+    MobsArea = {
+        CFrame.new(-1970, 45, -12330),
+        CFrame.new(-2000, 45, -12360),
+        CFrame.new(-1940, 45, -12300),
+        CFrame.new(-1990, 45, -12290),
+        CFrame.new(-1950, 45, -12350),
+        CFrame.new(-2020, 45, -12320),
+        CFrame.new(-1920, 45, -12340),
+    },
+}
+
+-- Mobs do Cake Island
+KatakuriFarm.MobNames = {
+    "Peanut Scout",
+    "Peanut President",
+    "Ice Cream Chef",
+    "Cake Guard",
+    "Baking Staff",
+    "Head Baker",
+    "Chocolate Battler",
+    "Candy Crawler",
+}
+
+-- Boss
+KatakuriFarm.BossName = "Cake Prince"
+
+-- Configurações
+KatakuriFarm.Config = {
+    Enabled = false,
+    KillPrince = true,          -- Atacar o Cake Prince quando spawnar
+    Method = "Below",
+    AttackDistance = 20,
+    AutoEquip = true,
+    FastAttack = true,
+    AutoHaki = true,
+    UseSkills = true,
+    SkillZ = true,
+    SkillX = true,
+    SkillC = true,
+    SkillV = false,
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+local function EnsureCharacter()
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        return char:WaitForChild("HumanoidRootPart", 30), char:WaitForChild("Humanoid", 30)
+    end
+    return char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
+end
+
+local function EquipWeapon()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+    if not backpack or not humanoid then return end
+
+    local priorities = {"Godhuman", "Superhuman", "Death Step", "Electric Claw", "Dragon Talon", "Combat"}
+    for _, name in ipairs(priorities) do
+        local tool = backpack:FindFirstChild(name)
+        if tool then humanoid:EquipTool(tool) return end
+    end
+    local fallback = backpack:FindFirstChildOfClass("Tool")
+    if fallback then humanoid:EquipTool(fallback) end
+end
+
+--[[
+    Verificar progresso do Cake Prince
+    Retorna: kills atuais (0-500), ou nil se já spawnou
+]]
+function KatakuriFarm:GetCakePrinceProgress()
+    local success, result = pcall(function()
+        return CommF_:InvokeServer("CakePrinceSpawner")
+    end)
+
+    if success and result then
+        -- result é uma string como "500" ou número de kills restantes
+        if type(result) == "number" then
+            return result
+        elseif type(result) == "string" then
+            local num = tonumber(result:match("(%d+)"))
+            return num
+        end
+    end
+
+    -- Se retornar nil/vazio, o boss pode ter spawnado
+    return 0, true -- 0 kills, possivelmente spawnado
+end
+
+--[[
+    Obter mobs do Cake Island
+]]
+function KatakuriFarm:GetCakeMobs()
+    local mobs = {}
+    local root = self._root
+    if not root then return mobs end
+
+    pcall(function()
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not enemies then return end
+
+        for _, mob in ipairs(enemies:GetChildren()) do
+            if mob:IsA("Model") then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+
+                if humanoid and mobRoot and humanoid.Health > 0 then
+                    -- Verificar se é mob do Cake Island
+                    for _, name in ipairs(self.MobNames) do
+                        if mob.Name == name then
+                            local dist = (root.Position - mobRoot.Position).Magnitude
+                            table.insert(mobs, {
+                                Model = mob,
+                                RootPart = mobRoot,
+                                Name = mob.Name,
+                                Distance = dist,
+                                Health = humanoid.Health,
+                            })
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    table.sort(mobs, function(a, b) return a.Distance < b.Distance end)
+    return mobs
+end
+
+--[[
+    Verificar se o Cake Prince está spawnado
+]]
+function KatakuriFarm:IsPrinceSpawned()
+    local success, result = pcall(function()
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not enemies then return nil end
+
+        for _, mob in ipairs(enemies:GetChildren()) do
+            if mob.Name == self.BossName then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    return mob
+                end
+            end
+        end
+        return nil
+    end)
+
+    return success and result or nil
+end
+
+--[[
+    Atacar entidade específica
+]]
+function KatakuriFarm:AttackEntity(model, rootPart)
+    if not model or not rootPart then return end
+
+    if self._root then
+        self._root.CFrame = CFrame.new(self._root.Position, Vector3.new(rootPart.Position.X, self._root.Position.Y, rootPart.Position.Z))
+    end
+
+    EquipWeapon()
+
+    if self.Config.FastAttack then
+        pcall(function()
+            local registerAttack = Remotes:FindFirstChild("RegisterAttack")
+            local registerHit = Remotes:FindFirstChild("RegisterHit")
+            if registerAttack and registerHit then
+                registerAttack:FireServer(0)
+                registerHit:FireServer(rootPart, {model})
+            end
+        end)
+    end
+
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+    task.wait(0.01)
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+end
+
+function KatakuriFarm:UseSkills()
+    local skills = {
+        {key = "Z", enabled = self.Config.SkillZ},
+        {key = "X", enabled = self.Config.SkillX},
+        {key = "C", enabled = self.Config.SkillC},
+        {key = "V", enabled = self.Config.SkillV},
+    }
+    for _, skill in ipairs(skills) do
+        if skill.enabled then
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, skill.key, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, skill.key, false, game)
+            end)
+        end
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES PRINCIPAIS
+-- ══════════════════════════════════════════════════════════════════
+
+function KatakuriFarm:Start()
+    if self._running then return false end
+
+    -- Verificar Sea 3
+    local currentSea = 1
+    pcall(function()
+        local Locations = getgenv().CUZAO and getgenv().CUZAO.Modules["Locations"]
+        if Locations then currentSea = Locations:GetCurrentSea() end
+    end)
+    if currentSea < 3 then
+        warn("[KatakuriFarm] Requer Sea 3")
+        return false
+    end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("KatakuriFarm")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+    self._sessionKills = 0
+    self._princeKills = 0
+
+    local root, hum = EnsureCharacter()
+    self._root = root
+    self._humanoid = hum
+
+    self._respawnConnection = LocalPlayer.CharacterAdded:Connect(function(char)
+        self._root = char:WaitForChild("HumanoidRootPart", 30)
+        self._humanoid = char:WaitForChild("Humanoid", 30)
+        task.wait(2)
+    end)
+
+    -- Teleportar para Cake Island
+    if self._root then
+        self._root.CFrame = self.Location.IslandCenter
+        task.wait(1)
+    end
+
+    if self.Config.AutoHaki then
+        pcall(function() CommF_:InvokeServer("Buso") end)
+    end
+
+    print("[KatakuriFarm] Farm iniciado | Cake Prince Farm")
+
+    if EventBus then
+        EventBus:Emit("AutoFarm.Katakuri.Started")
+    end
+
+    self._connection = task.spawn(function()
+        self:MainLoop()
+    end)
+
+    return true
+end
+
+function KatakuriFarm:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    if self._connection then
+        task.cancel(self._connection)
+        self._connection = nil
+    end
+    if self._respawnConnection then
+        self._respawnConnection:Disconnect()
+        self._respawnConnection = nil
+    end
+
+    print("[KatakuriFarm] Farm parado | Kills: " .. self._sessionKills .. " | Prince Kills: " .. self._princeKills)
+
+    if EventBus then
+        EventBus:Emit("AutoFarm.Katakuri.Stopped", {
+            Kills = self._sessionKills,
+            PrinceKills = self._princeKills,
+            SessionTime = tick() - self._sessionStart,
+        })
+    end
+
+    return true
+end
+
+function KatakuriFarm:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- LOOP PRINCIPAL
+-- ══════════════════════════════════════════════════════════════════
+
+function KatakuriFarm:MainLoop()
+    while self._running do
+        -- Verificar personagem
+        if not self._root or not self._root.Parent then
+            local root, hum = EnsureCharacter()
+            self._root = root
+            self._humanoid = hum
+            task.wait(1)
+            continue
+        end
+
+        if self._humanoid and self._humanoid.Health <= 0 then
+            task.wait(3)
+            continue
+        end
+
+        -- Verificar se Cake Prince spawnou
+        local prince = self:IsPrinceSpawned()
+
+        if prince and self.Config.KillPrince then
+            -- Boss encontrado! Atacar com prioridade
+            self._princeSpawned = true
+            local princeRoot = prince:FindFirstChild("HumanoidRootPart")
+            local princeHum = prince:FindFirstChild("Humanoid")
+
+            if princeRoot and princeHum and princeHum.Health > 0 then
+                -- Posicionar perto do boss
+                self._root.CFrame = princeRoot.CFrame * CFrame.new(0, -10, 0)
+                task.wait(0.2)
+
+                -- Atacar boss
+                local startTime = tick()
+                while self._running and princeHum.Health > 0 and prince.Parent do
+                    self:AttackEntity(prince, princeRoot)
+                    if math.random(1, 3) == 1 then
+                        self:UseSkills()
+                    end
+                    task.wait(0.05)
+                end
+
+                if princeHum.Health <= 0 or not prince.Parent then
+                    self._princeKills = self._princeKills + 1
+                    self._sessionKills = self._sessionKills + 1
+                    print("[KatakuriFarm] Cake Prince derrotado! Total: " .. self._princeKills)
+
+                    if EventBus then
+                        EventBus:Emit("AutoFarm.Katakuri.PrinceKilled", {
+                            TotalPrinceKills = self._princeKills,
+                        })
+                    end
+                end
+
+                self._princeSpawned = false
+                task.wait(2)
+                continue
+            end
+        end
+
+        -- Farm normal: matar mobs para progredir kills
+        local mobs = self:GetCakeMobs()
+
+        if #mobs == 0 then
+            -- Nenhum mob, reposicionar
+            local randomIdx = math.random(1, #self.Location.MobsArea)
+            self._root.CFrame = self.Location.MobsArea[randomIdx]
+            task.wait(1.5)
+            continue
+        end
+
+        for _, mobData in ipairs(mobs) do
+            if not self._running then break end
+
+            if not mobData.Model or not mobData.Model.Parent then continue end
+            local hum = mobData.Model:FindFirstChild("Humanoid")
+            if not hum or hum.Health <= 0 then
+                self._sessionKills = self._sessionKills + 1
+                continue
+            end
+
+            -- Posicionar
+            local mobCF = mobData.RootPart.CFrame
+            if self.Config.Method == "Below" then
+                self._root.CFrame = CFrame.new(mobCF.Position + Vector3.new(0, -10, 0))
+            else
+                self._root.CFrame = mobCF * CFrame.new(0, 0, 5)
+            end
+
+            self:AttackEntity(mobData.Model, mobData.RootPart)
+
+            if math.random(1, 4) == 1 then
+                self:UseSkills()
+            end
+
+            task.wait(0.05)
+        end
+
+        -- Emitir progresso periodicamente
+        if math.random(1, 30) == 1 then
+            local remaining = self:GetCakePrinceProgress()
+            if EventBus then
+                EventBus:Emit("AutoFarm.Katakuri.Progress", {
+                    Kills = self._sessionKills,
+                    PrinceKills = self._princeKills,
+                    Remaining = remaining,
+                })
+            end
+        end
+
+        task.wait(0.1)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function KatakuriFarm:GetStatus()
+    return {
+        Running = self._running,
+        SessionKills = self._sessionKills,
+        PrinceKills = self._princeKills,
+        PrinceSpawned = self._princeSpawned,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function KatakuriFarm:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    if EventBus then
+        EventBus:On("AutoFarm.Katakuri.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+    end
+
+    print("[KatakuriFarm] Módulo inicializado")
+    return true
+end
+
+function KatakuriFarm:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("AutoFarm.Katakuri.Toggle")
+    end
+    print("[KatakuriFarm] Módulo limpo")
+end
+
+return KatakuriFarm
+end)
+
+-- [Feature/Combat/AutoClicker]
+pcall(function()
+--[[
+    CUZAO HUB - Auto Clicker / Fast Attack Module
+    Sistema de ataque rápido sem cooldown usando remotes do jogo
+
+    Principais remotes:
+    - RegisterAttack:FireServer(0) — Registra ataque sem delay
+    - RegisterHit:FireServer(headPart, targets) — Registra hit no alvo
+
+    Métodos de ataque:
+    1. Fast Attack — Usa remotes RegisterAttack/RegisterHit (sem cooldown)
+    2. Skill Attack — Usa VirtualInputManager para skills Z/X/C/V/F
+    3. Click Attack — Usa click de mouse (mais lento mas seguro)
+    4. Toggle Attack — Alterna entre modos rapidamente
+]]
+
+local AutoClicker = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF_ = Remotes:WaitForChild("CommF_")
+local RegisterAttack = Remotes:FindFirstChild("RegisterAttack")
+local RegisterHit = Remotes:FindFirstChild("RegisterHit")
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+AutoClicker._running = false
+AutoClicker._connection = nil
+AutoClicker._skillConnection = nil
+AutoClicker._mode = "FastAttack" -- FastAttack, SkillSpam, ClickAttack
+AutoClicker._attackCount = 0
+AutoClicker._sessionStart = 0
+AutoClicker._currentTarget = nil
+
+-- Cache de referências
+AutoClicker._root = nil
+AutoClicker._humanoid = nil
+
+-- Configurações
+AutoClicker.Config = {
+    Enabled = false,
+    Mode = "FastAttack",            -- FastAttack, SkillSpam, ClickAttack
+    AttackDelay = 0,                -- Delay entre ataques (0 = sem delay)
+    AttackRange = 60,               -- Distância máxima para atacar
+    ClickDelay = 0.05,              -- Delay para modo click
+    AutoEquip = true,
+    Weapon = "Melee",
+
+    -- Fast Attack
+    FastAttack = {
+        Enabled = true,
+        AttackSpeed = 0,            -- 0 =最快, sem delay
+        HitMultiple = true,         -- Atacar múltiplos alvos
+    },
+
+    -- Skill Spam
+    SkillSpam = {
+        Enabled = false,
+        Skills = {Z = true, X = true, C = true, V = false, F = false},
+        Delay = 0.5,
+    },
+
+    -- Alvo
+    TargetMobs = true,
+    TargetPlayers = false,
+    TargetBosses = true,
+
+    -- Haki
+    AutoHaki = true,
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+local function EnsureCharacter()
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        return char:WaitForChild("HumanoidRootPart", 30), char:WaitForChild("Humanoid", 30)
+    end
+    return char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
+end
+
+--[[
+    Equipar arma mais forte do tipo configurado
+]]
+local function EquipWeapon()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+    if not backpack or not humanoid then return false end
+
+    local priorities = {
+        Melee = {"Godhuman", "Superhuman", "Death Step", "Electric Claw", "Dragon Talon", "Sharkman Karate", "Combat"},
+        Sword = {"Cursed Dual Katana", "Tushita", "Yama", "Hallow Scythe", "Saber"},
+        Gun = {"Acidum Rifle", "Serpent Bow", "Soul Guitar", "Kabucha"},
+    }
+
+    local weaponList = priorities[AutoClicker.Config.Weapon] or priorities.Melee
+
+    for _, name in ipairs(weaponList) do
+        local tool = backpack:FindFirstChild(name)
+        if tool then
+            humanoid:EquipTool(tool)
+            return true
+        end
+    end
+
+    -- Fallback
+    local fallback = backpack:FindFirstChildOfClass("Tool")
+    if fallback then
+        humanoid:EquipTool(fallback)
+        return true
+    end
+    return false
+end
+
+--[[
+    Obter todos os alvos dentro do alcance
+]]
+local function GetTargetsInRange()
+    local targets = {}
+    local root = AutoClicker._root
+    if not root then return targets end
+
+    local range = AutoClicker.Config.AttackRange
+
+    pcall(function()
+        -- Alvos: mobs
+        if AutoClicker.Config.TargetMobs then
+            local enemies = Workspace:FindFirstChild("Enemies")
+            if enemies then
+                for _, mob in ipairs(enemies:GetChildren()) do
+                    if mob:IsA("Model") then
+                        local humanoid = mob:FindFirstChild("Humanoid")
+                        local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+                        if humanoid and mobRoot and humanoid.Health > 0 then
+                            local dist = (root.Position - mobRoot.Position).Magnitude
+                            if dist <= range then
+                                table.insert(targets, {
+                                    Model = mob,
+                                    RootPart = mobRoot,
+                                    Head = mob:FindFirstChild("Head") or mobRoot,
+                                    Distance = dist,
+                                    Health = humanoid.Health,
+                                    MaxHealth = humanoid.MaxHealth,
+                                    Type = "Mob",
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Alvos: jogadores (PvP)
+        if AutoClicker.Config.TargetPlayers then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local humanoid = player.Character:FindFirstChild("Humanoid")
+                    local playerRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                    if humanoid and playerRoot and humanoid.Health > 0 then
+                        local dist = (root.Position - playerRoot.Position).Magnitude
+                        if dist <= range then
+                            table.insert(targets, {
+                                Model = player.Character,
+                                RootPart = playerRoot,
+                                Head = player.Character:FindFirstChild("Head") or playerRoot,
+                                Distance = dist,
+                                Health = humanoid.Health,
+                                MaxHealth = humanoid.MaxHealth,
+                                Type = "Player",
+                                Player = player,
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Ordenar por distância
+    table.sort(targets, function(a, b) return a.Distance < b.Distance end)
+
+    return targets
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- MÉTODOS DE ATAQUE
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Fast Attack — Usa remotes RegisterAttack e RegisterHit
+    Este é o método mais rápido, sem cooldown
+]]
+function AutoClicker:FastAttack(target)
+    if not target or not target.RootPart then return end
+
+    local root = self._root
+    if not root then return end
+
+    -- Olhar para o alvo
+    root.CFrame = CFrame.new(root.Position, Vector3.new(target.RootPart.Position.X, root.Position.Y, target.RootPart.Position.Z))
+
+    -- Equipar arma
+    if self.Config.AutoEquip then
+        EquipWeapon()
+    end
+
+    -- Ataque rápido via remotes
+    pcall(function()
+        if RegisterAttack and RegisterHit then
+            -- Registrar ataque (0 = sem delay)
+            RegisterAttack:FireServer(self.Config.FastAttack.AttackSpeed)
+
+            -- Registrar hit no alvo
+            local hitPart = target.Head or target.RootPart
+            local hitTargets = {target.Model}
+
+            -- Se habilitado múltiplos alvos, incluir todos na área
+            if self.Config.FastAttack.HitMultiple then
+                local allTargets = GetTargetsInRange()
+                for _, t in ipairs(allTargets) do
+                    if t.Model ~= target.Model then
+                        table.insert(hitTargets, t.Model)
+                    end
+                end
+            end
+
+            RegisterHit:FireServer(hitPart, hitTargets)
+        end
+    end)
+
+    self._attackCount = self._attackCount + 1
+end
+
+--[[
+    Click Attack — Usa click de mouse (mais lento, mais seguro)
+]]
+function AutoClicker:ClickAttack(target)
+    if not target or not target.RootPart then return end
+
+    local root = self._root
+    if not root then return end
+
+    -- Olhar para o alvo
+    root.CFrame = CFrame.new(root.Position, Vector3.new(target.RootPart.Position.X, root.Position.Y, target.RootPart.Position.Z))
+
+    -- Equipar arma
+    if self.Config.AutoEquip then
+        EquipWeapon()
+    end
+
+    -- Click esquerdo
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+    task.wait(0.01)
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+
+    self._attackCount = self._attackCount + 1
+end
+
+--[[
+    Usar skill específica
+]]
+function AutoClicker:UseSkill(skillKey)
+    local keyCode = {
+        Z = Enum.KeyCode.Z,
+        X = Enum.KeyCode.X,
+        C = Enum.KeyCode.C,
+        V = Enum.KeyCode.V,
+        F = Enum.KeyCode.F,
+    }
+
+    local key = keyCode[skillKey]
+    if not key then return end
+
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, key, false, game)
+        task.wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, key, false, game)
+    end)
+end
+
+--[[
+    Usar todas as skills habilitadas
+]]
+function AutoClicker:UseAllSkills()
+    local skills = self.Config.SkillSpam.Skills
+    local delay = self.Config.SkillSpam.Delay
+
+    for skillKey, enabled in pairs(skills) do
+        if enabled then
+            self:UseSkill(skillKey)
+            task.wait(delay)
+        end
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function AutoClicker:Start(mode)
+    if self._running then return false end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("Combat.AutoClicker")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    mode = mode or self.Config.Mode
+    self._running = true
+    self._mode = mode
+    self._sessionStart = tick()
+    self._attackCount = 0
+
+    local root, hum = EnsureCharacter()
+    self._root = root
+    self._humanoid = hum
+
+    -- Conectar respawn
+    local respawnConn = LocalPlayer.CharacterAdded:Connect(function(char)
+        self._root = char:WaitForChild("HumanoidRootPart", 30)
+        self._humanoid = char:WaitForChild("Humanoid", 30)
+    end)
+    self._respawnConnection = respawnConn
+
+    -- Ativar Haki
+    if self.Config.AutoHaki then
+        pcall(function() CommF_:InvokeServer("Buso") end)
+    end
+
+    print("[AutoClicker] Iniciado | Modo: " .. mode)
+
+    if EventBus then
+        EventBus:Emit("Combat.AutoClicker.Started", {Mode = mode})
+    end
+
+    -- Loop do modo selecionado
+    self._connection = task.spawn(function()
+        if mode == "FastAttack" then
+            self:FastAttackLoop()
+        elseif mode == "ClickAttack" then
+            self:ClickAttackLoop()
+        elseif mode == "SkillSpam" then
+            self:SkillSpamLoop()
+        end
+    end)
+
+    -- Loop de skills (se SkillSpam habilitado em qualquer modo)
+    if mode ~= "SkillSpam" and self.Config.SkillSpam.Enabled then
+        self._skillConnection = task.spawn(function()
+            while self._running do
+                self:UseAllSkills()
+                task.wait(self.Config.SkillSpam.Delay)
+            end
+        end)
+    end
+
+    return true
+end
+
+function AutoClicker:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    if self._connection then
+        task.cancel(self._connection)
+        self._connection = nil
+    end
+
+    if self._skillConnection then
+        task.cancel(self._skillConnection)
+        self._skillConnection = nil
+    end
+
+    if self._respawnConnection then
+        self._respawnConnection:Disconnect()
+        self._respawnConnection = nil
+    end
+
+    print("[AutoClicker] Parado | Total de ataques: " .. self._attackCount)
+
+    if EventBus then
+        EventBus:Emit("Combat.AutoClicker.Stopped", {
+            Attacks = self._attackCount,
+            SessionTime = tick() - self._sessionStart,
+        })
+    end
+
+    return true
+end
+
+function AutoClicker:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- LOOPS POR MODO
+-- ══════════════════════════════════════════════════════════════════
+
+function AutoClicker:FastAttackLoop()
+    while self._running do
+        -- Verificar personagem
+        if not self._root or not self._root.Parent then
+            local root, hum = EnsureCharacter()
+            self._root = root
+            self._humanoid = hum
+            task.wait(0.5)
+            continue
+        end
+
+        if self._humanoid and self._humanoid.Health <= 0 then
+            task.wait(2)
+            continue
+        end
+
+        -- Obter alvos
+        local targets = GetTargetsInRange()
+
+        if #targets > 0 then
+            -- Atacar cada alvo
+            for _, target in ipairs(targets) do
+                if not self._running then break end
+
+                -- Verificar se alvo ainda existe e está vivo
+                if target.Model and target.Model.Parent then
+                    local hum = target.Model:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
+                        self:FastAttack(target)
+                    end
+                end
+
+                task.wait(self.Config.AttackDelay)
+            end
+        else
+            -- Nenhum alvo, esperar
+            task.wait(0.2)
+        end
+    end
+end
+
+function AutoClicker:ClickAttackLoop()
+    while self._running do
+        if not self._root or not self._root.Parent then
+            local root, hum = EnsureCharacter()
+            self._root = root
+            self._humanoid = hum
+            task.wait(0.5)
+            continue
+        end
+
+        if self._humanoid and self._humanoid.Health <= 0 then
+            task.wait(2)
+            continue
+        end
+
+        local targets = GetTargetsInRange()
+
+        if #targets > 0 then
+            for _, target in ipairs(targets) do
+                if not self._running then break end
+
+                if target.Model and target.Model.Parent then
+                    local hum = target.Model:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
+                        self:ClickAttack(target)
+                    end
+                end
+
+                task.wait(self.Config.ClickDelay)
+            end
+        else
+            task.wait(0.3)
+        end
+    end
+end
+
+function AutoClicker:SkillSpamLoop()
+    while self._running do
+        if not self._root or not self._root.Parent then
+            task.wait(1)
+            continue
+        end
+
+        if self._humanoid and self._humanoid.Health <= 0 then
+            task.wait(2)
+            continue
+        end
+
+        local targets = GetTargetsInRange()
+        if #targets > 0 then
+            self:UseAllSkills()
+        end
+
+        task.wait(self.Config.SkillSpam.Delay)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function AutoClicker:GetStatus()
+    return {
+        Running = self._running,
+        Mode = self._mode,
+        AttackCount = self._attackCount,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+function AutoClicker:SetMode(mode)
+    if self._running then
+        self:Stop()
+        task.wait(0.2)
+        self:Start(mode)
+    else
+        self.Config.Mode = mode
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function AutoClicker:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    -- Atualizar referências de remotes (podem não existir no load)
+    pcall(function()
+        RegisterAttack = Remotes:FindFirstChild("RegisterAttack")
+        RegisterHit = Remotes:FindFirstChild("RegisterHit")
+    end)
+
+    if EventBus then
+        EventBus:On("Combat.AutoClicker.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+
+        EventBus:On("Combat.FastAttack.Toggle", function(enabled)
+            if enabled then
+                self:Start("FastAttack")
+            else
+                self:Stop()
+            end
+        end)
+    end
+
+    print("[AutoClicker] Módulo inicializado")
+    return true
+end
+
+function AutoClicker:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("Combat.AutoClicker.Toggle")
+        EventBus:Clear("Combat.FastAttack.Toggle")
+    end
+    print("[AutoClicker] Módulo limpo")
+end
+
+return AutoClicker
+end)
+
+-- [Feature/ESP/PlayerESP]
+pcall(function()
+--[[
+    CUZAO HUB - Player ESP Module
+    Exibe informações de jogadores sobre seus personagens via BillboardGui
+
+    Elementos exibidos:
+    - Nome do jogador
+    - Distância
+    - Vida (HP bar)
+    - Fruta equipada
+    - Arma equipada
+    - Cor por time/inimigo
+
+    Usa BillboardGui + TextLabel para compatibilidade máxima
+    (não depende de Drawing API que pode não existir em todos executors)
+]]
+
+local PlayerESP = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+PlayerESP._running = false
+PlayerESP._connection = nil
+PlayerESP._espInstances = {}    -- [player] = {billboard, labels, connections}
+PlayerESP._sessionStart = 0
+
+-- Configurações
+PlayerESP.Config = {
+    Enabled = false,
+    ShowName = true,
+    ShowDistance = true,
+    ShowHealth = true,
+    ShowFruit = true,
+    ShowWeapon = true,
+    ShowTeam = true,
+    MaxDistance = 5000,
+    Color = Color3.fromRGB(255, 0, 0),         -- Vermelho (inimigos)
+    TeamColor = Color3.fromRGB(0, 255, 0),      -- Verde (aliados)
+    HighlightEnabled = false,
+    FontSize = 14,
+    UpdateInterval = 0.5,                        -- Segundos entre atualizações
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Formatar distância para exibição
+]]
+local function FormatDistance(meters)
+    if meters < 1000 then
+        return string.format("%.0f M", meters)
+    else
+        return string.format("%.1f KM", meters / 1000)
+    end
+end
+
+--[[
+    Formatar barra de vida
+]]
+local function FormatHealthBar(health, maxHealth)
+    if maxHealth <= 0 then return "[DEAD]" end
+    local percent = math.clamp(health / maxHealth * 100, 0, 100)
+    local bars = math.floor(percent / 10)
+    local empty = 10 - bars
+    return string.format("[%s%s] %d%%", string.rep("█", bars), string.rep("░", empty), math.floor(percent))
+end
+
+--[[
+    Formatar vida como texto
+]]
+local function FormatHealth(health, maxHealth)
+    if maxHealth <= 0 then return "0/0" end
+    return string.format("%d/%d", math.floor(health), math.floor(maxHealth))
+end
+
+--[[
+    Obter cor baseada no time
+]]
+local function GetTeamColor(player)
+    if player.Team and player.Team == LocalPlayer.Team then
+        return PlayerESP.Config.TeamColor
+    end
+    return PlayerESP.Config.Color
+end
+
+--[[
+    Obter fruta equipada do jogador (de forma segura)
+]]
+local function GetEquippedFruit(player)
+    local success, fruitName = pcall(function()
+        local char = player.Character
+        if char then
+            -- Verificar Tool com atributo Fruit
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") and tool:FindFirstChild("Fruit") then
+                    return tool.Name
+                end
+            end
+            -- Verificar Backpack
+            local backpack = player:FindFirstChild("Backpack")
+            if backpack then
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") and tool:FindFirstChild("Fruit") then
+                        return tool.Name
+                    end
+                end
+            end
+        end
+        return nil
+    end)
+    return success and fruitName or nil
+end
+
+--[[
+    Obter arma equipada
+]]
+local function GetEquippedWeapon(player)
+    local success, weaponName = pcall(function()
+        local char = player.Character
+        if char then
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") and not tool:FindFirstChild("Fruit") then
+                    return tool.Name
+                end
+            end
+        end
+        return nil
+    end)
+    return success and weaponName or nil
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CRIAÇÃO DE ESP
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Criar BillboardGui de ESP para um jogador
+]]
+local function CreateESPForPlayer(player)
+    local espData = PlayerESP._espInstances[player]
+    if espData then return espData end
+
+    -- Criar BillboardGui
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "CUZAO_ESP_" .. player.Name
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.MaxDistance = PlayerESP.Config.MaxDistance
+    billboard.Size = UDim2.new(1, 200, 1, 60)
+    billboard.ExtentsOffset = Vector3.new(0, 2, 0)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.LightInfluence = 0
+
+    -- Container
+    local container = Instance.new("Frame")
+    container.Name = "ESPContainer"
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.Parent = billboard
+
+    -- Label: Nome + Distância
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.Size = UDim2.new(1, 0, 0.35, 0)
+    nameLabel.Position = UDim2.new(0, 0, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = PlayerESP.Config.FontSize
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+    nameLabel.Text = player.Name
+    nameLabel.Parent = container
+
+    -- Label: Vida
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Name = "HealthLabel"
+    healthLabel.Size = UDim2.new(1, 0, 0.25, 0)
+    healthLabel.Position = UDim2.new(0, 0, 0.35, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    healthLabel.TextStrokeTransparency = 0.5
+    healthLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    healthLabel.Font = Enum.Font.Gotham
+    healthLabel.TextSize = PlayerESP.Config.FontSize - 2
+    healthLabel.TextXAlignment = Enum.TextXAlignment.Center
+    healthLabel.Text = ""
+    healthLabel.Parent = container
+
+    -- Label: Info (Fruta/Arma)
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Name = "InfoLabel"
+    infoLabel.Size = UDim2.new(1, 0, 0.25, 0)
+    infoLabel.Position = UDim2.new(0, 0, 0.6, 0)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+    infoLabel.TextStrokeTransparency = 0.5
+    infoLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = PlayerESP.Config.FontSize - 3
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Center
+    infoLabel.Text = ""
+    infoLabel.Parent = container
+
+    -- Barra de vida (Frame)
+    local healthBarBG = Instance.new("Frame")
+    healthBarBG.Name = "HealthBarBG"
+    healthBarBG.Size = UDim2.new(0.8, 0, 0, 4)
+    healthBarBG.Position = UDim2.new(0.1, 0, 0.92, 0)
+    healthBarBG.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    healthBarBG.BorderSizePixel = 1
+    healthBarBG.BorderColor3 = Color3.fromRGB(100, 100, 100)
+    healthBarBG.Parent = container
+
+    local healthBarFill = Instance.new("Frame")
+    healthBarFill.Name = "HealthBarFill"
+    healthBarFill.Size = UDim2.new(1, 0, 1, 0)
+    healthBarFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    healthBarFill.BorderSizePixel = 0
+    healthBarFill.Parent = healthBarBG
+
+    espData = {
+        Billboard = billboard,
+        NameLabel = nameLabel,
+        HealthLabel = healthLabel,
+        InfoLabel = infoLabel,
+        HealthBarBG = healthBarBG,
+        HealthBarFill = healthBarFill,
+        Container = container,
+        Player = player,
+        Connections = {},
+    }
+
+    PlayerESP._espInstances[player] = espData
+    return espData
+end
+
+--[[
+    Remover ESP de um jogador
+]]
+local function RemoveESPForPlayer(player)
+    local espData = PlayerESP._espInstances[player]
+    if not espData then return end
+
+    -- Desconectar eventos
+    for _, conn in ipairs(espData.Connections) do
+        if conn and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+
+    -- Destruir instâncias
+    if espData.Billboard and espData.Billboard.Parent then
+        espData.Billboard:Destroy()
+    end
+
+    PlayerESP._espInstances[player] = nil
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- ATUALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Atualizar ESP de um jogador específico
+]]
+local function UpdateESPForPlayer(player)
+    local espData = PlayerESP._espInstances[player]
+    if not espData then return end
+
+    pcall(function()
+        local character = player.Character
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character and character:FindFirstChild("Humanoid")
+
+        if not character or not rootPart or not humanoid then
+            espData.Billboard.Enabled = false
+            return
+        end
+
+        -- Verificar distância
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not myRoot then
+            espData.Billboard.Enabled = false
+            return
+        end
+
+        local distance = (myRoot.Position - rootPart.Position).Magnitude
+
+        -- Verificar se está muito longe
+        if distance > PlayerESP.Config.MaxDistance then
+            espData.Billboard.Enabled = false
+            return
+        end
+
+        -- Atualizar posição
+        espData.Billboard.Adornee = rootPart
+        espData.Billboard.Enabled = true
+
+        -- Cor baseada no time
+        local teamColor = GetTeamColor(player)
+
+        -- Atualizar nome
+        if PlayerESP.Config.ShowName then
+            local distanceText = ""
+            if PlayerESP.Config.ShowDistance then
+                distanceText = " | " .. FormatDistance(distance)
+            end
+            espData.NameLabel.Text = player.DisplayName .. " (@" .. player.Name .. ")" .. distanceText
+            espData.NameLabel.TextColor3 = teamColor
+            espData.NameLabel.Visible = true
+        else
+            espData.NameLabel.Visible = false
+        end
+
+        -- Atualizar vida
+        if PlayerESP.Config.ShowHealth and humanoid then
+            local hp = humanoid.Health
+            local maxHp = humanoid.MaxHealth
+
+            espData.HealthLabel.Text = FormatHealth(hp, maxHp)
+            espData.HealthLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+            -- Cor da barra de vida
+            local healthPercent = maxHp > 0 and hp / maxHp or 0
+            if healthPercent > 0.6 then
+                espData.HealthBarFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            elseif healthPercent > 0.3 then
+                espData.HealthBarFill.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+            else
+                espData.HealthBarFill.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            end
+
+            espData.HealthBarFill.Size = UDim2.new(math.clamp(healthPercent, 0, 1), 0, 1, 0)
+            espData.HealthLabel.Visible = true
+            espData.HealthBarBG.Visible = true
+        else
+            espData.HealthLabel.Visible = false
+            espData.HealthBarBG.Visible = false
+        end
+
+        -- Atualizar info (fruta/arma)
+        local infoParts = {}
+        if PlayerESP.Config.ShowFruit then
+            local fruit = GetEquippedFruit(player)
+            if fruit then
+                table.insert(infoParts, "[FRUIT] " .. fruit)
+            end
+        end
+        if PlayerESP.Config.ShowWeapon then
+            local weapon = GetEquippedWeapon(player)
+            if weapon then
+                table.insert(infoParts, "[WP] " .. weapon)
+            end
+        end
+
+        if #infoParts > 0 then
+            espData.InfoLabel.Text = table.concat(infoParts, " | ")
+            espData.InfoLabel.Visible = true
+        else
+            espData.InfoLabel.Visible = false
+        end
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function PlayerESP:Start()
+    if self._running then return false end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("ESP.Player")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+
+    print("[PlayerESP] Iniciado | Distância máxima: " .. self.Config.MaxDistance .. " M")
+
+    if EventBus then
+        EventBus:Emit("ESP.Player.Started")
+    end
+
+    -- Criar ESP para jogadores existentes
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            CreateESPForPlayer(player)
+        end
+    end
+
+    -- Conectar eventos de jogadores entrando/saindo
+    local joinConn = Players.PlayerAdded:Connect(function(player)
+        if self._running and player ~= LocalPlayer then
+            task.wait(1) -- Esperar personagem carregar
+            CreateESPForPlayer(player)
+        end
+    end)
+
+    local leaveConn = Players.PlayerRemoving:Connect(function(player)
+        RemoveESPForPlayer(player)
+    end)
+
+    table.insert(self._espInstances._connections or {}, joinConn)
+    table.insert(self._espInstances._connections or {}, leaveConn)
+
+    -- Loop de atualização
+    self._connection = task.spawn(function()
+        while self._running do
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    -- Criar ESP se não existe
+                    if not self._espInstances[player] then
+                        CreateESPForPlayer(player)
+                    end
+                    -- Atualizar
+                    UpdateESPForPlayer(player)
+                end
+            end
+            task.wait(self.Config.UpdateInterval)
+        end
+    end)
+
+    return true
+end
+
+function PlayerESP:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    if self._connection then
+        task.cancel(self._connection)
+        self._connection = nil
+    end
+
+    -- Remover todos os ESPs
+    for player, _ in pairs(self._espInstances) do
+        if player ~= "_connections" then
+            RemoveESPForPlayer(player)
+        end
+    end
+    self._espInstances = {}
+
+    print("[PlayerESP] Desativado")
+
+    if EventBus then
+        EventBus:Emit("ESP.Player.Stopped")
+    end
+
+    return true
+end
+
+function PlayerESP:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function PlayerESP:GetStatus()
+    local count = 0
+    for k, _ in pairs(self._espInstances) do
+        if k ~= "_connections" then count = count + 1 end
+    end
+    return {
+        Running = self._running,
+        ActiveESPs = count,
+        MaxDistance = self.Config.MaxDistance,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function PlayerESP:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    if EventBus then
+        EventBus:On("ESP.Player.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+    end
+
+    print("[PlayerESP] Módulo inicializado")
+    return true
+end
+
+function PlayerESP:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("ESP.Player.Toggle")
+    end
+    print("[PlayerESP] Módulo limpo")
+end
+
+return PlayerESP
+end)
+
+-- [Feature/ESP/FruitESP]
+pcall(function()
+--[[
+    CUZAO HUB - Fruit ESP Module
+    Exibe informações de frutas no mundo via BillboardGui
+
+    Frutas são encontradas:
+    - Spawns no mapa (spawn points)
+    - Dropadas por jogadores
+    - No chão após reset de fruta
+
+    Exibe:
+    - Nome da fruta
+    - Distância
+    - Raridade
+    - Valor estimado
+    - Cor baseada na raridade
+]]
+
+local FruitESP = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+FruitESP._running = false
+FruitESP._connection = nil
+FruitESP._espInstances = {}
+FruitESP._sessionStart = 0
+
+-- Nomes de frutas do Blox Fruits
+FruitESP.FruitDatabase = {
+    -- Common
+    Rocket = {Value = 5000, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+    Spin = {Value = 7500, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+    Chop = {Value = 30000, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+    Spring = {Value = 60000, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+    Bomb = {Value = 80000, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+    Smoke = {Value = 100000, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+    Spike = {Value = 180000, Rarity = "Common", Color = Color3.fromRGB(180, 180, 180)},
+
+    -- Uncommon
+    Flame = {Value = 250000, Rarity = "Uncommon", Color = Color3.fromRGB(0, 200, 255)},
+    Falcon = {Value = 300000, Rarity = "Uncommon", Color = Color3.fromRGB(0, 200, 255)},
+    Ice = {Value = 350000, Rarity = "Uncommon", Color = Color3.fromRGB(0, 200, 255)},
+    Sand = {Value = 420000, Rarity = "Uncommon", Color = Color3.fromRGB(0, 200, 255)},
+    Dark = {Value = 500000, Rarity = "Uncommon", Color = Color3.fromRGB(0, 200, 255)},
+
+    -- Rare
+    Ghost = {Value = 940000, Rarity = "Rare", Color = Color3.fromRGB(0, 255, 0)},
+    Diamond = {Value = 1000000, Rarity = "Rare", Color = Color3.fromRGB(0, 255, 0)},
+    Light = {Value = 650000, Rarity = "Rare", Color = Color3.fromRGB(0, 255, 0)},
+    Rubber = {Value = 750000, Rarity = "Rare", Color = Color3.fromRGB(0, 255, 0)},
+    Barrier = {Value = 800000, Rarity = "Rare", Color = Color3.fromRGB(0, 255, 0)},
+    Magma = {Value = 850000, Rarity = "Rare", Color = Color3.fromRGB(0, 255, 0)},
+
+    -- Legendary
+    Quake = {Value = 1000000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Buddha = {Value = 1200000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Love = {Value = 700000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Spider = {Value = 1500000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Sound = {Value = 1700000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Phoenix = {Value = 1800000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Portal = {Value = 1900000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Rumble = {Value = 2100000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Pain = {Value = 2300000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Blizzard = {Value = 2400000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Gravity = {Value = 2500000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Mammoth = {Value = 2700000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    ["T-Rex"] = {Value = 2800000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Dough = {Value = 2800000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Shadow = {Value = 2900000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Venom = {Value = 3000000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Control = {Value = 3200000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+    Spirit = {Value = 3400000, Rarity = "Legendary", Color = Color3.fromRGB(255, 170, 0)},
+
+    -- Mythical
+    Dragon = {Value = 3500000, Rarity = "Mythical", Color = Color3.fromRGB(255, 0, 255)},
+    Leopard = {Value = 5000000, Rarity = "Mythical", Color = Color3.fromRGB(255, 0, 255)},
+    Kitsune = {Value = 8000000, Rarity = "Mythical", Color = Color3.fromRGB(255, 0, 255)},
+}
+
+-- Configurações
+FruitESP.Config = {
+    Enabled = false,
+    ShowName = true,
+    ShowDistance = true,
+    ShowPrice = true,
+    ShowRarity = true,
+    MaxDistance = 10000,
+    UpdateInterval = 1,
+    HighlightFruits = true,
+    FontSize = 14,
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+local function FormatDistance(meters)
+    if meters < 1000 then
+        return string.format("%.0f M", meters)
+    else
+        return string.format("%.1f KM", meters / 1000)
+    end
+end
+
+local function FormatPrice(value)
+    if value >= 1000000 then
+        return string.format("$%.1fM", value / 1000000)
+    elseif value >= 1000 then
+        return string.format("$%.1fK", value / 1000)
+    end
+    return "$" .. tostring(value)
+end
+
+--[[
+    Obter dados da fruta pelo nome
+]]
+function FruitESP:GetFruitData(fruitName)
+    -- Busca exata
+    if self.FruitDatabase[fruitName] then
+        return self.FruitDatabase[fruitName]
+    end
+
+    -- Busca parcial
+    local lowerName = fruitName:lower()
+    for name, data in pairs(self.FruitDatabase) do
+        if name:lower():find(lowerName) or lowerName:find(name:lower()) then
+            return data
+        end
+    end
+
+    return nil
+end
+
+--[[
+    Verificar se uma instância é uma fruta
+]]
+function FruitESP:IsFruitModel(instance)
+    if not instance or not instance:IsA("Model") then return false end
+
+    -- Verificar nome
+    local name = instance.Name
+    if self:GetFruitData(name) then return true end
+
+    -- Verificar se tem Handle e é uma fruit
+    local handle = instance:FindFirstChild("Handle")
+    if handle then
+        for fruitName in pairs(self.FruitDatabase) do
+            if name:find(fruitName) then return true end
+        end
+    end
+
+    -- Verificar atributo
+    if instance:FindFirstChild("Fruit") or instance:GetAttribute("Fruit") then
+        return true
+    end
+
+    return false
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CRIAÇÃO DE ESP
+-- ══════════════════════════════════════════════════════════════════
+
+function FruitESP:CreateESPForFruit(fruitModel)
+    if self._espInstances[fruitModel] then return end
+
+    local fruitData = self:GetFruitData(fruitModel.Name)
+    local espColor = fruitData and fruitData.Color or Color3.fromRGB(255, 255, 0)
+
+    -- Criar BillboardGui
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "CUZAO_FruitESP_" .. fruitModel.Name
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(1, 200, 1, 60)
+    billboard.ExtentsOffset = Vector3.new(0, 2, 0)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+
+    -- Container
+    local container = Instance.new("Frame")
+    container.Name = "Container"
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.Parent = billboard
+
+    -- Label: Nome da fruta
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    nameLabel.Position = UDim2.new(0, 0, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = espColor
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = self.Config.FontSize
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+    nameLabel.Text = fruitModel.Name
+    nameLabel.Parent = container
+
+    -- Label: Distância
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Name = "DistLabel"
+    distLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    distLabel.TextStrokeTransparency = 0.5
+    distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextSize = self.Config.FontSize - 2
+    distLabel.TextXAlignment = Enum.TextXAlignment.Center
+    distLabel.Text = ""
+    distLabel.Parent = container
+
+    -- Label: Preço/Raridade
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Name = "InfoLabel"
+    infoLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    infoLabel.Position = UDim2.new(0, 0, 0.7, 0)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.TextColor3 = espColor
+    infoLabel.TextStrokeTransparency = 0.5
+    infoLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = self.Config.FontSize - 3
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Center
+    infoLabel.Text = ""
+    infoLabel.Parent = container
+
+    -- Adornar ao Handle se disponível
+    local handle = fruitModel:FindFirstChild("Handle")
+    if handle then
+        billboard.Adornee = handle
+    elseif fruitModel.PrimaryPart then
+        billboard.Adornee = fruitModel.PrimaryPart
+    end
+
+    -- Highlight (brilho visual)
+    local highlight = nil
+    if self.Config.HighlightFruits then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "CUZAO_FruitHighlight"
+        highlight.FillColor = espColor
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.7
+        highlight.OutlineTransparency = 0.3
+        highlight.Adornee = fruitModel
+        highlight.Parent = fruitModel
+    end
+
+    billboard.Parent = fruitModel
+
+    local espData = {
+        Billboard = billboard,
+        NameLabel = nameLabel,
+        DistLabel = distLabel,
+        InfoLabel = infoLabel,
+        Highlight = highlight,
+        Model = fruitModel,
+        FruitData = fruitData,
+    }
+
+    self._espInstances[fruitModel] = espData
+end
+
+function FruitESP:RemoveESPForFruit(fruitModel)
+    local espData = self._espInstances[fruitModel]
+    if not espData then return end
+
+    if espData.Billboard and espData.Billboard.Parent then
+        espData.Billboard:Destroy()
+    end
+
+    if espData.Highlight and espData.Highlight.Parent then
+        espData.Highlight:Destroy()
+    end
+
+    self._espInstances[fruitModel] = nil
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- ATUALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function FruitESP:ScanForFruits()
+    local fruits = {}
+
+    pcall(function()
+        -- Verificar no workspace inteiro
+        for _, instance in ipairs(Workspace:GetDescendants()) do
+            if self:IsFruitModel(instance) then
+                table.insert(fruits, instance)
+            end
+        end
+    end)
+
+    return fruits
+end
+
+function FruitESP:UpdateAllFruits()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    -- Escanear frutas
+    local foundFruits = self:ScanForFruits()
+
+    -- Criar ESP para frutas novas
+    for _, fruit in ipairs(foundFruits) do
+        if not self._espInstances[fruit] then
+            self:CreateESPForFruit(fruit)
+        end
+    end
+
+    -- Remover ESP de frutas que não existem mais
+    for fruitModel, espData in pairs(self._espInstances) do
+        if fruitModel == "_running" or fruitModel == "_sessionStart" then continue end
+        if not fruitModel or not fruitModel.Parent then
+            self:RemoveESPForFruit(fruitModel)
+        end
+    end
+
+    -- Atualizar informações
+    for fruitModel, espData in pairs(self._espInstances) do
+        if fruitModel == "_running" or fruitModel == "_sessionStart" then continue end
+
+        pcall(function()
+            -- Determinar posição da fruta
+            local fruitPos = nil
+            if fruitModel.PrimaryPart then
+                fruitPos = fruitModel.PrimaryPart.Position
+            elseif fruitModel:FindFirstChild("Handle") then
+                fruitPos = fruitModel.Handle.Position
+            else
+                local part = fruitModel:FindFirstChildOfClass("BasePart")
+                if part then fruitPos = part.Position end
+            end
+
+            if not fruitPos then
+                espData.Billboard.Enabled = false
+                return
+            end
+
+            -- Calcular distância
+            local distance = (myRoot.Position - fruitPos).Magnitude
+
+            if distance > self.Config.MaxDistance then
+                espData.Billboard.Enabled = false
+                return
+            end
+
+            espData.Billboard.Enabled = true
+
+            -- Atualizar distância
+            if self.Config.ShowDistance then
+                espData.DistLabel.Text = FormatDistance(distance)
+                espData.DistLabel.Visible = true
+            else
+                espData.DistLabel.Visible = false
+            end
+
+            -- Atualizar preço/raridade
+            local infoParts = {}
+            if self.Config.ShowRarity and espData.FruitData then
+                table.insert(infoParts, espData.FruitData.Rarity)
+            end
+            if self.Config.ShowPrice and espData.FruitData then
+                table.insert(infoParts, FormatPrice(espData.FruitData.Value))
+            end
+
+            if #infoParts > 0 then
+                espData.InfoLabel.Text = table.concat(infoParts, " | ")
+                espData.InfoLabel.Visible = true
+            else
+                espData.InfoLabel.Visible = false
+            end
+        end)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function FruitESP:Start()
+    if self._running then return false end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("ESP.Fruit")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+
+    print("[FruitESP] Iniciado | Distância máxima: " .. self.Config.MaxDistance .. " M")
+
+    if EventBus then
+        EventBus:Emit("ESP.Fruit.Started")
+    end
+
+    -- Escaneamento periódico
+    self._connection = task.spawn(function()
+        while self._running do
+            self:UpdateAllFruits()
+            task.wait(self.Config.UpdateInterval)
+        end
+    end)
+
+    return true
+end
+
+function FruitESP:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    if self._connection then
+        task.cancel(self._connection)
+        self._connection = nil
+    end
+
+    -- Remover todos os ESPs
+    for fruitModel, _ in pairs(self._espInstances) do
+        if fruitModel ~= "_running" and fruitModel ~= "_sessionStart" then
+            self:RemoveESPForFruit(fruitModel)
+        end
+    end
+    self._espInstances = {}
+
+    print("[FruitESP] Desativado")
+
+    if EventBus then
+        EventBus:Emit("ESP.Fruit.Stopped")
+    end
+
+    return true
+end
+
+function FruitESP:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function FruitESP:GetStatus()
+    local count = 0
+    for k, _ in pairs(self._espInstances) do
+        if k ~= "_running" and k ~= "_sessionStart" then count = count + 1 end
+    end
+    return {
+        Running = self._running,
+        ActiveFruits = count,
+        MaxDistance = self.Config.MaxDistance,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function FruitESP:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    if EventBus then
+        EventBus:On("ESP.Fruit.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+    end
+
+    print("[FruitESP] Módulo inicializado")
+    return true
+end
+
+function FruitESP:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("ESP.Fruit.Toggle")
+    end
+    print("[FruitESP] Módulo limpo")
+end
+
+return FruitESP
+end)
+
+-- [Feature/Teleport/IslandTP]
+pcall(function()
+--[[
+    CUZAO HUB - Island Teleport Module
+    Teleporte entre ilhas com bypass e entrance requests
+
+    Suporta:
+    - Teleporte direto (CFrame)
+    - Tween suave (TweenService)
+    - Bypass teleport (para áreas protegidas)
+    - RequestEntrance (para entrar em áreas específicas)
+    - Detecção de Sea automática
+]]
+
+local IslandTP = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF_ = Remotes:WaitForChild("CommF_")
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+local Locations = nil
+
+-- Estado
+IslandTP._running = false
+IslandTP._tweening = false
+IslandTP._currentTween = nil
+IslandTP._sessionStart = 0
+
+-- Configurações
+IslandTP.Config = {
+    Enabled = false,
+    TweenSpeed = 350,           -- Studs por segundo
+    TweenEnabled = true,        -- Usar tween ou TP direto
+    BypassTP = true,            -- Usar bypass quando disponível
+    SafeMode = true,            -- Verificar posição antes de teleportar
+    EntranceRequest = true,     -- Pedir entrance para áreas específicas
+    NoClipDuring = true,        -- Ativar noclip durante tween
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- DADOS DE ILHAS COM ENTRANCE REQUESTS
+-- ══════════════════════════════════════════════════════════════════
+
+-- Áreas que precisam de entrance request
+IslandTP.EntranceAreas = {
+    ["Underwater City"] = { PlaceId = 2753915549, Position = Vector3.new(61163, 11, 1819) },
+    ["Hot and Cold"] = { PlaceId = 2753915549, Position = Vector3.new(61163, 11, 1819) },
+    ["Cursed Ship"] = { PlaceId = 4442272183, Position = Vector3.new(923, 125, 32800) },
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+local function EnsureCharacter()
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        return char:WaitForChild("HumanoidRootPart", 30), char:WaitForChild("Humanoid", 30)
+    end
+    return char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
+end
+
+--[[
+    Verificar se a posição de destino é segura (não void, não out of bounds)
+]]
+local function IsSafePosition(position)
+    if not IslandTP.Config.SafeMode then return true end
+
+    -- Verificar se não está no void
+    if position.Y < -500 then return false end
+
+    -- Verificar se não está muito longe
+    if position.Magnitude > 100000 then return false end
+
+    -- Verificar colisão no destino
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.IgnoreWater = true
+
+    local character = LocalPlayer.Character
+    if character then
+        rayParams.FilterDescendantsInstances = {character}
+    end
+
+    local rayResult = Workspace:Raycast(
+        position + Vector3.new(0, 50, 0),
+        Vector3.new(0, -100, 0),
+        rayParams
+    )
+
+    -- Se não há chão detectado embaixo, pode ser perigoso mas aceitar
+    return true
+end
+
+--[[
+    Solicitar entrance para áreas que precisam
+]]
+local function RequestEntrance(areaName)
+    if not IslandTP.Config.EntranceRequest then return end
+
+    local area = IslandTP.EntranceAreas[areaName]
+    if not area then return end
+
+    pcall(function()
+        CommF_:InvokeServer("requestEntrance", area.Position)
+    end)
+
+    task.wait(1)
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- MÉTODOS DE TELEPORTE
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Teleporte direto (instantâneo)
+]]
+function IslandTP:DirectTeleport(targetCFrame)
+    local root = EnsureCharacter()
+    if not root then return false end
+
+    root.CFrame = targetCFrame
+    return true
+end
+
+--[[
+    Tween suave até o destino
+]]
+function IslandTP:TweenTeleport(targetCFrame)
+    local root, humanoid = EnsureCharacter()
+    if not root then return false end
+
+    self._tweening = true
+
+    -- Noclip durante tween
+    local noclipConnection = nil
+    if self.Config.NoClipDuring then
+        noclipConnection = RunService.Stepped:Connect(function()
+            if not self._tweening then return end
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+
+    local distance = (root.Position - targetCFrame.Position).Magnitude
+    local duration = distance / self.Config.TweenSpeed
+
+    local tweenInfo = TweenInfo.new(
+        duration,
+        Enum.EasingStyle.Linear,
+        Enum.EasingDirection.Out
+    )
+
+    local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
+    self._currentTween = tween
+
+    tween.Completed:Connect(function()
+        self._tweening = false
+        self._currentTween = nil
+
+        if noclipConnection then
+            noclipConnection:Disconnect()
+        end
+    end)
+
+    tween:Play()
+    return true, tween
+end
+
+--[[
+    Cancelar tween em andamento
+]]
+function IslandTP:CancelTeleport()
+    if self._currentTween then
+        self._currentTween:Cancel()
+        self._currentTween = nil
+        self._tweening = false
+
+        -- Parar noclip
+        return true
+    end
+    return false
+end
+
+--[[
+    Teleporte com bypass (usa CommF_ para bypass de anti-cheat)
+]]
+function IslandTP:BypassTeleport(targetCFrame)
+    if not self.Config.BypassTP then
+        return self:DirectTeleport(targetCFrame)
+    end
+
+    -- Método bypass: teleportar em steps
+    local root = EnsureCharacter()
+    if not root then return false end
+
+    local currentPos = root.Position
+    local targetPos = targetCFrame.Position
+    local steps = 3
+
+    for i = 1, steps do
+        local alpha = i / steps
+        local stepPos = currentPos:Lerp(targetPos, alpha)
+        local stepCFrame = CFrame.new(stepPos, targetPos)
+
+        root.CFrame = stepCFrame
+        task.wait(0.1)
+    end
+
+    -- Posição final
+    root.CFrame = targetCFrame
+    return true
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- API PÚBLICA DE TELEPORTE
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Teleportar para uma ilha pelo nome
+]]
+function IslandTP:TeleportToIsland(islandName)
+    if self._tweening then
+        self:CancelTeleport()
+        task.wait(0.2)
+    end
+
+    -- Buscar ilha nos dados
+    if not Locations then
+        warn("[IslandTP] Módulo Locations não disponível")
+        return false
+    end
+
+    local currentSea = Locations:GetCurrentSea()
+    local islands = Locations:GetIslands(currentSea)
+
+    local islandData = islands[islandName]
+    if not islandData then
+        warn("[IslandTP] Ilha não encontrada: " .. islandName)
+        return false
+    end
+
+    local targetCFrame = CFrame.new(islandData.Position)
+
+    -- Verificar segurança
+    if not IsSafePosition(islandData.Position) then
+        warn("[IslandTP] Posição considerada insegura: " .. islandName)
+        return false
+    end
+
+    -- Solicitar entrance se necessário
+    RequestEntrance(islandName)
+
+    print("[IslandTP] Teleportando para: " .. islandName .. " (Sea " .. currentSea .. ")")
+
+    if EventBus then
+        EventBus:Emit("Teleport.Island.Started", {Island = islandName, Sea = currentSea})
+    end
+
+    -- Executar teleporte
+    local success
+    if self.Config.TweenEnabled then
+        success = self:TweenTeleport(targetCFrame)
+    else
+        success = self:BypassTeleport(targetCFrame)
+    end
+
+    if EventBus then
+        EventBus:Emit("Teleport.Island.Completed", {Island = islandName, Success = success})
+    end
+
+    return success
+end
+
+--[[
+    Teleportar para posição específica
+]]
+function IslandTP:TeleportToPosition(position)
+    if self._tweening then
+        self:CancelTeleport()
+        task.wait(0.2)
+    end
+
+    local targetCFrame = CFrame.new(position)
+
+    if not IsSafePosition(position) then
+        warn("[IslandTP] Posição insegura")
+        return false
+    end
+
+    if self.Config.TweenEnabled then
+        return self:TweenTeleport(targetCFrame)
+    else
+        return self:BypassTeleport(targetCFrame)
+    end
+end
+
+--[[
+    Teleportar para NPC pelo nome
+]]
+function IslandTP:TeleportToNPC(npcName)
+    local npcData = Locations and Locations.NPCs and Locations.NPCs[npcName]
+    if npcData then
+        return self:TeleportToPosition(npcData)
+    end
+    warn("[IslandTP] NPC não encontrado: " .. npcName)
+    return false
+end
+
+--[[
+    Listar ilhas disponíveis para o sea atual
+]]
+function IslandTP:GetAvailableIslands()
+    if not Locations then return {} end
+
+    local currentSea = Locations:GetCurrentSea()
+    local islands = Locations:GetIslands(currentSea)
+    local names = {}
+
+    for name, data in pairs(islands) do
+        table.insert(names, {
+            Name = name,
+            Position = data.Position,
+            Level = data.Level,
+        })
+    end
+
+    table.sort(names, function(a, b)
+        local levelA = a.Level and a.Level[1] or 0
+        local levelB = b.Level and b.Level[1] or 0
+        return levelA < levelB
+    end)
+
+    return names
+end
+
+--[[
+    Obter ilha mais próxima da posição atual
+]]
+function IslandTP:GetNearestIsland()
+    local root = EnsureCharacter()
+    if not root then return nil end
+
+    if not Locations then return nil end
+
+    local currentSea = Locations:GetCurrentSea()
+    return Locations:GetNearestIsland(root.Position, currentSea)
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function IslandTP:Start()
+    if self._running then return false end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("Teleport")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+
+    print("[IslandTP] Módulo ativado | Velocidade: " .. self.Config.TweenSpeed .. " studs/s")
+
+    if EventBus then
+        EventBus:Emit("Teleport.Island.Ready")
+    end
+
+    return true
+end
+
+function IslandTP:Stop()
+    if not self._running then return false end
+
+    self:CancelTeleport()
+    self._running = false
+
+    print("[IslandTP] Módulo desativado")
+
+    if EventBus then
+        EventBus:Emit("Teleport.Island.Stopped")
+    end
+
+    return true
+end
+
+function IslandTP:IsRunning()
+    return self._running
+end
+
+function IslandTP:IsTweening()
+    return self._tweening
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function IslandTP:GetStatus()
+    local root = EnsureCharacter()
+    local currentPos = root and root.Position or Vector3.new(0, 0, 0)
+
+    return {
+        Running = self._running,
+        Tweening = self._tweening,
+        Position = currentPos,
+        Speed = self.Config.TweenSpeed,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+local RunService = game:GetService("RunService")
+
+function IslandTP:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+    Locations = deps.Locations
+
+    if EventBus then
+        EventBus:On("Teleport.Island.Go", function(data)
+            if data and data.Island then
+                self:TeleportToIsland(data.Island)
+            elseif data and data.Position then
+                self:TeleportToPosition(data.Position)
+            end
+        end)
+
+        EventBus:On("Teleport.Island.Cancel", function()
+            self:CancelTeleport()
+        end)
+    end
+
+    print("[IslandTP] Módulo inicializado")
+    return true
+end
+
+function IslandTP:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("Teleport.Island.Go")
+        EventBus:Clear("Teleport.Island.Cancel")
+    end
+    print("[IslandTP] Módulo limpo")
+end
+
+return IslandTP
+end)
+
+-- [Feature/Misc/ServerHop]
+pcall(function()
+--[[
+    CUZAO HUB - Server Hop Module
+    Sistema de troca de servidor, rejoin e job ID teleport
+
+    Funcionalidades:
+    - Server Hop: Buscar e conectar a servidor com menos/mais jogadores
+    - Rejoin: Reconectar ao mesmo servidor
+    - Job ID Teleport: Conectar a servidor específico pelo JobId
+    - Auto Hop: Trocar de servidor automaticamente em intervalos
+]]
+
+local ServerHop = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+local PlaceId = game.PlaceId
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+ServerHop._running = false
+ServerHop._autoHopConnection = nil
+ServerHop._sessionStart = 0
+ServerHop._hopCount = 0
+ServerHop._lastHopTime = 0
+
+-- Configurações
+ServerHop.Config = {
+    Enabled = false,
+    Mode = "LowPlayers",        -- LowPlayers, HighPlayers, Random, Specific
+    MinPlayers = 1,
+    MaxPlayers = 12,
+    SpecificJobId = "",
+    AutoHop = false,
+    AutoHopInterval = 300,      -- Segundos entre hops automáticos (5 min)
+    MaxHops = 0,                -- 0 = ilimitado
+    RejoinOnKick = true,
+    RejoinOnCrash = true,
+    ExcludeFull = true,
+    DelayBetweenHops = 5,       -- Delay entre tentativas de hop
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES DE API ROBLOX
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Buscar lista de servidores para o jogo atual
+]]
+function ServerHop:FetchServers(cursor)
+    local url = string.format(
+        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
+        PlaceId,
+        cursor and ("&cursor=" .. cursor) or ""
+    )
+
+    local success, result = pcall(function()
+        return game:HttpGet(url)
+    end)
+
+    if success and result then
+        local decodeSuccess, decoded = pcall(function()
+            return HttpService:JSONDecode(result)
+        end)
+
+        if decodeSuccess and decoded then
+            return decoded
+        end
+    end
+
+    return nil
+end
+
+--[[
+    Buscar todos os servidores (com paginação)
+]]
+function ServerHop:FetchAllServers(maxPages)
+    maxPages = maxPages or 5
+    local allServers = {}
+    local cursor = nil
+
+    for i = 1, maxPages do
+        local data = self:FetchServers(cursor)
+        if not data or not data.data then break end
+
+        for _, server in ipairs(data.data) do
+            table.insert(allServers, server)
+        end
+
+        cursor = data.nextPageCursor
+        if not cursor then break end
+
+        task.wait(0.5) -- Rate limit
+    end
+
+    return allServers
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- FILTROS DE SERVIDOR
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Filtrar servidores com base no modo
+]]
+function ServerHop:FilterServers(servers)
+    local currentJobId = game.JobId
+    local filtered = {}
+
+    for _, server in ipairs(servers) do
+        -- Ignorar servidor atual
+        if server.id == currentJobId then continue end
+
+        -- Ignorar servidores lotados
+        if self.Config.ExcludeFull and server.playing and server.maxPlayers then
+            if server.playing >= server.maxPlayers then continue end
+        end
+
+        -- Ignorar servidores vazios
+        if not server.playing or server.playing == 0 then continue end
+
+        -- Filtro por modo
+        if self.Config.Mode == "LowPlayers" then
+            if server.playing <= self.Config.MaxPlayers then
+                table.insert(filtered, server)
+            end
+        elseif self.Config.Mode == "HighPlayers" then
+            if server.playing >= self.Config.MinPlayers then
+                table.insert(filtered, server)
+            end
+        elseif self.Config.Mode == "Random" then
+            table.insert(filtered, server)
+        end
+    end
+
+    return filtered
+end
+
+--[[
+    Selecionar melhor servidor da lista filtrada
+]]
+function ServerHop:SelectBestServer(servers)
+    if #servers == 0 then return nil end
+
+    if self.Config.Mode == "LowPlayers" then
+        -- Ordenar por menos jogadores
+        table.sort(servers, function(a, b)
+            return (a.playing or 0) < (b.playing or 0)
+        end)
+        return servers[1]
+    elseif self.Config.Mode == "HighPlayers" then
+        -- Ordenar por mais jogadores
+        table.sort(servers, function(a, b)
+            return (a.playing or 0) > (b.playing or 0)
+        end)
+        return servers[1]
+    elseif self.Config.Mode == "Random" then
+        return servers[math.random(1, #servers)]
+    end
+
+    return servers[1]
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- AÇÕES
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Server Hop: Trocar para outro servidor
+]]
+function ServerHop:Hop()
+    print("[ServerHop] Buscando servidores...")
+
+    -- Verificar limite de hops
+    if self.Config.MaxHops > 0 and self._hopCount >= self.Config.MaxHops then
+        warn("[ServerHop] Limite de hops atingido: " .. self._hopCount)
+        return false
+    end
+
+    -- Buscar servidores
+    local servers = self:FetchAllServers(3)
+    if #servers == 0 then
+        warn("[ServerHop] Nenhum servidor encontrado")
+        return false
+    end
+
+    -- Filtrar
+    local filtered = self:FilterServers(servers)
+    if #filtered == 0 then
+        warn("[ServerHop] Nenhum servidor passou no filtro")
+        return false
+    end
+
+    -- Selecionar melhor
+    local bestServer = self:SelectBestServer(filtered)
+    if not bestServer or not bestServer.id then
+        warn("[ServerHop] Falha ao selecionar servidor")
+        return false
+    end
+
+    print("[ServerHop] Conectando ao servidor: " .. bestServer.id ..
+          " (" .. (bestServer.playing or 0) .. "/" .. (bestServer.maxPlayers or 0) .. " jogadores)")
+
+    -- Teleportar
+    local success, err = pcall(function()
+        TeleportService:TeleportToPlaceInstance(PlaceId, bestServer.id, LocalPlayer)
+    end)
+
+    if success then
+        self._hopCount = self._hopCount + 1
+        self._lastHopTime = tick()
+        print("[ServerHop] Hop #" .. self._hopCount .. " iniciado")
+
+        if EventBus then
+            EventBus:Emit("Misc.ServerHop.Hopped", {
+                ServerId = bestServer.id,
+                Players = bestServer.playing,
+                HopCount = self._hopCount,
+            })
+        end
+
+        return true
+    else
+        warn("[ServerHop] Erro ao teleportar: " .. tostring(err))
+        return false
+    end
+end
+
+--[[
+    Rejoin: Reconectar ao mesmo servidor
+]]
+function ServerHop:Rejoin()
+    print("[ServerHop] Reconectando ao servidor atual...")
+
+    local success, err = pcall(function()
+        TeleportService:Teleport(PlaceId, LocalPlayer)
+    end)
+
+    if success then
+        print("[ServerHop] Rejoin iniciado")
+        if EventBus then
+            EventBus:Emit("Misc.ServerHop.Rejoined")
+        end
+        return true
+    else
+        warn("[ServerHop] Erro no rejoin: " .. tostring(err))
+        return false
+    end
+end
+
+--[[
+    Job ID Teleport: Conectar a servidor específico
+]]
+function ServerHop:TeleportToJobId(jobId)
+    if not jobId or jobId == "" then
+        warn("[ServerHop] JobId inválido")
+        return false
+    end
+
+    -- Verificar se é o servidor atual
+    if jobId == game.JobId then
+        warn("[ServerHop] Já está neste servidor")
+        return false
+    end
+
+    print("[ServerHop] Conectando ao JobId: " .. jobId)
+
+    local success, err = pcall(function()
+        TeleportService:TeleportToPlaceInstance(PlaceId, jobId, LocalPlayer)
+    end)
+
+    if success then
+        self._hopCount = self._hopCount + 1
+        self._lastHopTime = tick()
+        print("[ServerHop] Teleporte para JobId iniciado")
+
+        if EventBus then
+            EventBus:Emit("Misc.ServerHop.Teleported", {JobId = jobId})
+        end
+
+        return true
+    else
+        warn("[ServerHop] Erro ao teleportar para JobId: " .. tostring(err))
+        return false
+    end
+end
+
+--[[
+    Copiar JobId do servidor atual para o clipboard
+]]
+function ServerHop:CopyJobId()
+    local jobId = game.JobId
+    if setclipboard then
+        setclipboard(jobId)
+        print("[ServerHop] JobId copiado: " .. jobId)
+        return jobId
+    end
+    warn("[ServerHop] Clipboard não disponível")
+    return nil
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- AUTO HOP
+-- ══════════════════════════════════════════════════════════════════
+
+function ServerHop:StartAutoHop()
+    if self._autoHopConnection then return end
+
+    self.Config.AutoHop = true
+    local interval = self.Config.AutoHopInterval
+
+    print("[ServerHop] Auto Hop ativado | Intervalo: " .. interval .. "s")
+
+    self._autoHopConnection = task.spawn(function()
+        while self.Config.AutoHop do
+            task.wait(interval)
+
+            if not self.Config.AutoHop then break end
+
+            -- Verificar limite
+            if self.Config.MaxHops > 0 and self._hopCount >= self.Config.MaxHops then
+                print("[ServerHop] Limite de auto hops atingido")
+                break
+            end
+
+            self:Hop()
+        end
+    end)
+end
+
+function ServerHop:StopAutoHop()
+    self.Config.AutoHop = false
+
+    if self._autoHopConnection then
+        task.cancel(self._autoHopConnection)
+        self._autoHopConnection = nil
+    end
+
+    print("[ServerHop] Auto Hop desativado")
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- AUTO REJOIN ON KICK/CRASH
+-- ══════════════════════════════════════════════════════════════════
+
+function ServerHop:EnableAutoRejoin()
+    -- Detectar desconexão
+    LocalPlayer.CharacterRemoving:Connect(function()
+        if not self.Config.RejoinOnKick then return end
+
+        task.wait(5) -- Esperar um pouco
+
+        -- Verificar se ainda está no jogo
+        if not LocalPlayer.Parent then
+            print("[ServerHop] Desconectado, tentando rejoin...")
+            self:Rejoin()
+        end
+    end)
+
+    -- Detectar erro de conexão
+    game:GetService("RunService").Heartbeat:Connect(function()
+        -- Esta é uma verificação leve, não precisa ser chamada frequentemente
+    end)
+
+    print("[ServerHop] Auto Rejoin habilitado")
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function ServerHop:Start()
+    if self._running then return false end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("Misc.ServerHop")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+
+    -- Auto Hop
+    if self.Config.AutoHop then
+        self:StartAutoHop()
+    end
+
+    -- Auto Rejoin
+    if self.Config.RejoinOnKick then
+        self:EnableAutoRejoin()
+    end
+
+    print("[ServerHop] Módulo ativado | Modo: " .. self.Config.Mode)
+
+    if EventBus then
+        EventBus:Emit("Misc.ServerHop.Started", {Mode = self.Config.Mode})
+    end
+
+    return true
+end
+
+function ServerHop:Stop()
+    if not self._running then return false end
+
+    self._running = false
+    self:StopAutoHop()
+
+    print("[ServerHop] Módulo desativado | Hops realizados: " .. self._hopCount)
+
+    if EventBus then
+        EventBus:Emit("Misc.ServerHop.Stopped", {
+            TotalHops = self._hopCount,
+            SessionTime = tick() - self._sessionStart,
+        })
+    end
+
+    return true
+end
+
+function ServerHop:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function ServerHop:GetStatus()
+    return {
+        Running = self._running,
+        Mode = self.Config.Mode,
+        AutoHop = self.Config.AutoHop,
+        HopCount = self._hopCount,
+        CurrentJobId = game.JobId,
+        CurrentPlayers = #Players:GetPlayers(),
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function ServerHop:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    if EventBus then
+        EventBus:On("Misc.ServerHop.Hop", function()
+            self:Hop()
+        end)
+
+        EventBus:On("Misc.ServerHop.Rejoin", function()
+            self:Rejoin()
+        end)
+
+        EventBus:On("Misc.ServerHop.ToggleAutoHop", function(enabled)
+            if enabled then
+                self:StartAutoHop()
+            else
+                self:StopAutoHop()
+            end
+        end)
+    end
+
+    print("[ServerHop] Módulo inicializado")
+    return true
+end
+
+function ServerHop:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("Misc.ServerHop.Hop")
+        EventBus:Clear("Misc.ServerHop.Rejoin")
+        EventBus:Clear("Misc.ServerHop.ToggleAutoHop")
+    end
+    print("[ServerHop] Módulo limpo")
+end
+
+return ServerHop
+end)
+
+-- [Feature/Misc/Fly]
+pcall(function()
+--[[
+    CUZAO HUB - Fly Module
+    Sistema de voo usando BodyGyro + BodyVelocity
+
+    Controles:
+    - W/S: Frente/Trás
+    - A/D: Esquerda/Direita
+    - Space: Subir
+    - LeftShift: Descer
+    - Câmera define direção do voo
+
+    Segurança:
+    - Verifica personagem antes de ativar
+    - Limpa BodyVelocity/BodyGyro ao desativar
+    - Restaura PlatformStand ao desativar
+    - Suporta respawn automático
+]]
+
+local Fly = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+Fly._running = false
+Fly._bodyVelocity = nil
+Fly._bodyGyro = nil
+Fly._connection = nil
+Fly._respawnConnection = nil
+Fly._root = nil
+Fly._humanoid = nil
+Fly._sessionStart = 0
+
+-- Configurações
+Fly.Config = {
+    Enabled = false,
+    Speed = 50,
+    FastSpeed = 100,
+    SlowSpeed = 25,
+    Keybind = Enum.KeyCode.F,        -- Tecla para toggle
+    DisableOnDeath = true,
+    AutoDisableOnKick = true,
+    EnableNoclip = true,              -- Noclip durante voo
+    UseCameraDirection = true,        -- Usar direção da câmera
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+local function EnsureCharacter()
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        return char:WaitForChild("HumanoidRootPart", 30), char:WaitForChild("Humanoid", 30)
+    end
+    return char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- SISTEMA DE VOO
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Criar BodyVelocity e BodyGyro para voo
+]]
+function Fly:CreateFlyParts(rootPart)
+    -- Limpar partes anteriores
+    self:DestroyFlyParts()
+
+    -- BodyVelocity para movimento
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "CUZAO_FlyVelocity"
+    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bv.Velocity = Vector3.new(0, 0, 0)
+    bv.P = 9000
+    bv.Parent = rootPart
+    self._bodyVelocity = bv
+
+    -- BodyGyro para estabilização e rotação
+    local bg = Instance.new("BodyGyro")
+    bg.Name = "CUZAO_FlyGyro"
+    bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bg.P = 9000
+    bg.D = 500
+    bg.CFrame = rootPart.CFrame
+    bg.Parent = rootPart
+    self._bodyGyro = bg
+
+    return bv, bg
+end
+
+--[[
+    Destruir BodyVelocity e BodyGyro
+]]
+function Fly:DestroyFlyParts()
+    if self._bodyVelocity then
+        pcall(function() self._bodyVelocity:Destroy() end)
+        self._bodyVelocity = nil
+    end
+
+    if self._bodyGyro then
+        pcall(function() self._bodyGyro:Destroy() end)
+        self._bodyGyro = nil
+    end
+end
+
+--[[
+    Ativar voo
+]]
+function Fly:Enable()
+    if self._running then return false end
+
+    local root, humanoid = EnsureCharacter()
+    if not root or not humanoid then
+        warn("[Fly] Personagem não encontrado")
+        return false
+    end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("Misc.Fly")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._root = root
+    self._humanoid = humanoid
+    self._running = true
+    self._sessionStart = tick()
+
+    -- Criar partes de voo
+    self:CreateFlyParts(root)
+
+    -- Ativar PlatformStand para estabilizar
+    humanoid.PlatformStand = true
+
+    -- Conectar respawn para recriar partes
+    self._respawnConnection = LocalPlayer.CharacterAdded:Connect(function(char)
+        self._root = char:WaitForChild("HumanoidRootPart", 30)
+        self._humanoid = char:WaitForChild("Humanoid", 30)
+
+        if self._running and self._root then
+            task.wait(0.5)
+            self:CreateFlyParts(self._root)
+            if self._humanoid then
+                self._humanoid.PlatformStand = true
+            end
+        end
+    end)
+
+    -- Loop principal de controle
+    self._connection = RunService.Heartbeat:Connect(function()
+        if not self._running then return end
+
+        -- Verificar personagem
+        if not self._root or not self._root.Parent then
+            local root, hum = EnsureCharacter()
+            self._root = root
+            self._humanoid = hum
+            if self._root then
+                self:CreateFlyParts(self._root)
+            end
+            return
+        end
+
+        -- Verificar morte
+        if self.Config.DisableOnDeath and self._humanoid and self._humanoid.Health <= 0 then
+            self:Disable()
+            return
+        end
+
+        -- Atualizar Camera
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        local cameraCFrame = camera.CFrame
+        local moveVector = Vector3.new(0, 0, 0)
+
+        -- Controles WASD + Space/Shift
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveVector = moveVector + cameraCFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveVector = moveVector - cameraCFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveVector = moveVector - cameraCFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveVector = moveVector + cameraCFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveVector = moveVector + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            moveVector = moveVector - Vector3.new(0, 1, 0)
+        end
+
+        -- Determinar velocidade (Shift rápido, Ctrl lento)
+        local currentSpeed = self.Config.Speed
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            currentSpeed = self.Config.SlowSpeed
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.E) then
+            currentSpeed = self.Config.FastSpeed
+        end
+
+        -- Normalizar e aplicar velocidade
+        if moveVector.Magnitude > 0 then
+            moveVector = moveVector.Unit * currentSpeed
+        end
+
+        -- Aplicar ao BodyVelocity
+        if self._bodyVelocity then
+            self._bodyVelocity.Velocity = moveVector
+        end
+
+        -- Aplicar rotação ao BodyGyro (seguir câmera)
+        if self._bodyGyro then
+            self._bodyGyro.CFrame = cameraCFrame
+        end
+
+        -- Noclip durante voo
+        if self.Config.EnableNoclip then
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+    end)
+
+    print("[Fly] Ativado | Velocidade: " .. self.Config.Speed)
+
+    if EventBus then
+        EventBus:Emit("Misc.Fly.Started", {Speed = self.Config.Speed})
+    end
+
+    return true
+end
+
+--[[
+    Desativar voo
+]]
+function Fly:Disable()
+    if not self._running then return false end
+
+    self._running = false
+
+    -- Limpar partes de voo
+    self:DestroyFlyParts()
+
+    -- Desconectar eventos
+    if self._connection then
+        self._connection:Disconnect()
+        self._connection = nil
+    end
+
+    if self._respawnConnection then
+        self._respawnConnection:Disconnect()
+        self._respawnConnection = nil
+    end
+
+    -- Restaurar PlatformStand
+    if self._humanoid then
+        self._humanoid.PlatformStand = false
+    end
+
+    -- Restaurar CanCollide
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+    end
+
+    print("[Fly] Desativado")
+
+    if EventBus then
+        EventBus:Emit("Misc.Fly.Stopped")
+    end
+
+    return true
+end
+
+--[[
+    Toggle voo
+]]
+function Fly:Toggle()
+    if self._running then
+        return self:Disable()
+    else
+        return self:Enable()
+    end
+end
+
+--[[
+    Definir velocidade do voo
+]]
+function Fly:SetSpeed(speed)
+    self.Config.Speed = speed
+    if self._running then
+        print("[Fly] Velocidade alterada para: " .. speed)
+    end
+end
+
+--[[
+    Verificar se está voando
+]]
+function Fly:IsFlying()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function Fly:Start()
+    return self:Enable()
+end
+
+function Fly:Stop()
+    return self:Disable()
+end
+
+function Fly:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function Fly:GetStatus()
+    return {
+        Running = self._running,
+        Speed = self.Config.Speed,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function Fly:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    -- Conectar toggle por tecla
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+
+        if input.KeyCode == self.Config.Keybind then
+            self:Toggle()
+        end
+    end)
+
+    if EventBus then
+        EventBus:On("Misc.Fly.Toggle", function(enabled)
+            if enabled then
+                self:Enable()
+            else
+                self:Disable()
+            end
+        end)
+
+        EventBus:On("Misc.Fly.SetSpeed", function(speed)
+            self:SetSpeed(speed)
+        end)
+    end
+
+    print("[Fly] Módulo inicializado | Toggle: " .. tostring(self.Config.Keybind))
+    return true
+end
+
+function Fly:Cleanup()
+    self:Disable()
+    if EventBus then
+        EventBus:Clear("Misc.Fly.Toggle")
+        EventBus:Clear("Misc.Fly.SetSpeed")
+    end
+    print("[Fly] Módulo limpo")
+end
+
+return Fly
+end)
+
+-- [Feature/Misc/StatAssign]
+pcall(function()
+--[[
+    CUZAO HUB - Stat Assign Module
+    Distribuição automática de pontos de stats
+
+    Stats disponíveis:
+    - Melee (Força)
+    - Defense (Defesa)
+    - Sword (Espada)
+    - Gun (Arma de fogo)
+    - Demon Fruit (Fruta)
+
+    Métodos:
+    - Auto: Distribui automaticamente baseado na prioridade
+    - OneShot: Coloca todos os pontos em uma stat específica
+    - Balanced: Distribui equilibradamente entre stats
+]]
+
+local StatAssign = {}
+
+-- Serviços
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF_ = Remotes:WaitForChild("CommF_")
+
+-- Referências de módulos
+local ConfigManager = nil
+local EventBus = nil
+
+-- Estado
+StatAssign._running = false
+StatAssign._autoAssignConnection = nil
+StatAssign._sessionStart = 0
+StatAssign._totalAssigned = 0
+
+-- Configurações
+StatAssign.Config = {
+    Enabled = false,
+    Mode = "Auto",              -- Auto, OneShot, Balanced, Custom
+    Priority = {"Melee", "Defense", "Sword", "Gun", "Fruit"},
+
+    -- Modo Auto: percentual分配
+    AutoPercentages = {
+        Melee = 40,
+        Defense = 40,
+        Sword = 10,
+        Gun = 0,
+        Fruit = 10,
+    },
+
+    -- Modo OneShot: stats a distribuir
+    OneShotStat = "Melee",
+
+    -- Modo Custom: distribuição personalizada
+    CustomDistribution = {
+        Melee = 30,
+        Defense = 30,
+        Sword = 20,
+        Gun = 10,
+        Fruit = 10,
+    },
+
+    -- Intervalo de verificação
+    AssignInterval = 2,         -- Segundos entre cada distribuição
+    MaxPerCycle = 5,            -- Máximo de pontos por ciclo (evita flood)
+    AutoAssignOnLevelUp = true, -- Auto distribuir ao subir de nível
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- DADOS DE STATS
+-- ══════════════════════════════════════════════════════════════════
+
+StatAssign.Stats = {
+    "Melee", "Defense", "Sword", "Gun", "Fruit",
+}
+
+StatAssign.StatNames = {
+    ["Melee"] = "Melee",
+    ["Defense"] = "Defense",
+    ["Sword"] = "Sword",
+    ["Gun"] = "Gun",
+    ["Fruit"] = "Demon Fruit",     -- Nome que o CommF_ espera
+}
+
+-- ══════════════════════════════════════════════════════════════════
+-- FUNÇÕES AUXILIARES
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Obter pontos disponíveis para distribuir
+]]
+function StatAssign:GetAvailablePoints()
+    local success, points = pcall(function()
+        local data = LocalPlayer:FindFirstChild("Data")
+        if data then
+            local stats = data:FindFirstChild("Stats")
+            if stats then
+                local pointsVal = stats:FindFirstChild("Points")
+                if pointsVal then
+                    return pointsVal.Value
+                end
+            end
+        end
+        return 0
+    end)
+
+    return success and points or 0
+end
+
+--[[
+    Obter nível atual
+]]
+function StatAssign:GetLevel()
+    local success, level = pcall(function()
+        return LocalPlayer.Data.Level.Value
+    end)
+    return success and level or 0
+end
+
+--[[
+    Obter valor de uma stat específica
+]]
+function StatAssign:GetStatValue(statName)
+    local success, value = pcall(function()
+        local data = LocalPlayer:FindFirstChild("Data")
+        if data then
+            local stats = data:FindFirstChild("Stats")
+            if stats then
+                local stat = stats:FindFirstChild(statName)
+                if stat then
+                    return stat.Value
+                end
+            end
+        end
+        return 0
+    end)
+
+    return success and value or 0
+end
+
+--[[
+    Obter todas as stats atuais
+]]
+function StatAssign:GetAllStats()
+    local stats = {}
+    for _, statName in ipairs(self.Stats) do
+        stats[statName] = self:GetStatValue(statName)
+    end
+    stats.Points = self:GetAvailablePoints()
+    stats.Level = self:GetLevel()
+    return stats
+end
+
+--[[
+    Adicionar pontos em uma stat
+    Retorna: success, pontos restantes
+]]
+function StatAssign:AddPoints(statName, amount)
+    if amount <= 0 then return true, 0 end
+
+    local remoteName = self.StatNames[statName] or statName
+
+    local success, err = pcall(function()
+        CommF_:InvokeServer("AddPoint", remoteName, amount)
+    end)
+
+    if success then
+        self._totalAssigned = self._totalAssigned + amount
+    else
+        warn("[StatAssign] Erro ao adicionar " .. amount .. " pontos em " .. statName .. ": " .. tostring(err))
+    end
+
+    return success, amount
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- MÉTODOS DE DISTRIBUIÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Modo Auto: Distribui baseado em percentuais configurados
+]]
+function StatAssign:DistributeAuto()
+    local availablePoints = self:GetAvailablePoints()
+    if availablePoints <= 0 then return 0 end
+
+    local totalAssigned = 0
+    local maxPerCycle = math.min(self.Config.MaxPerCycle, availablePoints)
+
+    -- Calcular distribuição baseada em percentuais
+    local distribution = {}
+    local totalPercent = 0
+
+    for _, statName in ipairs(self.Stats) do
+        local percent = self.Config.AutoPercentages[statName] or 0
+        totalPercent = totalPercent + percent
+    end
+
+    if totalPercent <= 0 then return 0 end
+
+    -- Normalizar percentuais
+    local normalizedPoints = {}
+    for _, statName in ipairs(self.Stats) do
+        local percent = self.Config.AutoPercentages[statName] or 0
+        normalizedPoints[statName] = math.floor((percent / totalPercent) * maxPerCycle)
+    end
+
+    -- Distribuir pontos
+    for _, statName in ipairs(self.Stats) do
+        local points = normalizedPoints[statName]
+        if points > 0 then
+            local success, _ = self:AddPoints(statName, points)
+            if success then
+                totalAssigned = totalAssigned + points
+            end
+        end
+    end
+
+    return totalAssigned
+end
+
+--[[
+    Modo OneShot: Coloca todos os pontos em uma stat
+]]
+function StatAssign:DistributeOneShot()
+    local availablePoints = self:GetAvailablePoints()
+    if availablePoints <= 0 then return 0 end
+
+    local statName = self.Config.OneShotStat
+    local maxPerCycle = math.min(self.Config.MaxPerCycle, availablePoints)
+
+    local success, _ = self:AddPoints(statName, maxPerCycle)
+    return success and maxPerCycle or 0
+end
+
+--[[
+    Modo Balanced: Distribui equilibradamente
+]]
+function StatAssign:DistributeBalanced()
+    local availablePoints = self:GetAvailablePoints()
+    if availablePoints <= 0 then return 0 end
+
+    local maxPerCycle = math.min(self.Config.MaxPerCycle, availablePoints)
+    local perStat = math.floor(maxPerCycle / #self.Stats)
+    local remainder = maxPerCycle - (perStat * #self.Stats)
+
+    local totalAssigned = 0
+
+    for _, statName in ipairs(self.Stats) do
+        local points = perStat
+        if remainder > 0 then
+            points = points + 1
+            remainder = remainder - 1
+        end
+
+        if points > 0 then
+            local success, _ = self:AddPoints(statName, points)
+            if success then
+                totalAssigned = totalAssigned + points
+            end
+        end
+    end
+
+    return totalAssigned
+end
+
+--[[
+    Modo Custom: Distribuição personalizada
+]]
+function StatAssign:DistributeCustom()
+    local availablePoints = self:GetAvailablePoints()
+    if availablePoints <= 0 then return 0 end
+
+    local totalPercent = 0
+    for _, percent in pairs(self.Config.CustomDistribution) do
+        totalPercent = totalPercent + percent
+    end
+
+    if totalPercent <= 0 then return 0 end
+
+    local maxPerCycle = math.min(self.Config.MaxPerCycle, availablePoints)
+    local totalAssigned = 0
+
+    for _, statName in ipairs(self.Stats) do
+        local percent = self.Config.CustomDistribution[statName] or 0
+        local points = math.floor((percent / totalPercent) * maxPerCycle)
+
+        if points > 0 then
+            local success, _ = self:AddPoints(statName, points)
+            if success then
+                totalAssigned = totalAssigned + points
+            end
+        end
+    end
+
+    return totalAssigned
+end
+
+--[[
+    Distribuir pontos baseado no modo selecionado
+]]
+function StatAssign:Distribute()
+    local mode = self.Config.Mode
+
+    if mode == "Auto" then
+        return self:DistributeAuto()
+    elseif mode == "OneShot" then
+        return self:DistributeOneShot()
+    elseif mode == "Balanced" then
+        return self:DistributeBalanced()
+    elseif mode == "Custom" then
+        return self:DistributeCustom()
+    else
+        warn("[StatAssign] Modo desconhecido: " .. tostring(mode))
+        return 0
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- CONTROLES
+-- ══════════════════════════════════════════════════════════════════
+
+function StatAssign:Start()
+    if self._running then return false end
+
+    -- Sincronizar config
+    if ConfigManager then
+        local cfg = ConfigManager:Get("Misc.AutoStats")
+        if cfg then
+            for k, v in pairs(cfg) do
+                if self.Config[k] ~= nil then self.Config[k] = v end
+            end
+        end
+    end
+
+    self._running = true
+    self._sessionStart = tick()
+    self._totalAssigned = 0
+
+    print("[StatAssign] Iniciado | Modo: " .. self.Config.Mode)
+
+    if EventBus then
+        EventBus:Emit("Misc.StatAssign.Started", {Mode = self.Config.Mode})
+    end
+
+    -- Loop de distribuição
+    self._autoAssignConnection = task.spawn(function()
+        while self._running do
+            local points = self:GetAvailablePoints()
+
+            if points > 0 then
+                local assigned = self:Distribute()
+                if assigned > 0 then
+                    -- Emitir evento de atualização
+                    if EventBus then
+                        EventBus:Emit("Misc.StatAssign.PointsAssigned", {
+                            Points = assigned,
+                            Remaining = points - assigned,
+                            Mode = self.Config.Mode,
+                        })
+                    end
+                end
+            end
+
+            task.wait(self.Config.AssignInterval)
+        end
+    end)
+
+    -- Distribuir imediatamente ao iniciar
+    task.spawn(function()
+        task.wait(1)
+        if self._running then
+            self:Distribute()
+        end
+    end)
+
+    return true
+end
+
+function StatAssign:Stop()
+    if not self._running then return false end
+
+    self._running = false
+
+    if self._autoAssignConnection then
+        task.cancel(self._autoAssignConnection)
+        self._autoAssignConnection = nil
+    end
+
+    print("[StatAssign] Parado | Total distribuído: " .. self._totalAssigned)
+
+    if EventBus then
+        EventBus:Emit("Misc.StatAssign.Stopped", {
+            TotalAssigned = self._totalAssigned,
+            SessionTime = tick() - self._sessionStart,
+        })
+    end
+
+    return true
+end
+
+function StatAssign:IsRunning()
+    return self._running
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- API PÚBLICA
+-- ══════════════════════════════════════════════════════════════════
+
+--[[
+    Definir prioridade de stats
+]]
+function StatAssign:SetPriority(priority)
+    self.Config.Priority = priority
+
+    -- Atualizar percentuais baseado na prioridade
+    local totalStats = #priority
+    local basePercent = math.floor(100 / totalStats)
+    local remainder = 100 - (basePercent * totalStats)
+
+    for i, statName in ipairs(priority) do
+        self.Config.AutoPercentages[statName] = basePercent
+        if i == 1 then
+            self.Config.AutoPercentages[statName] = basePercent + remainder
+        end
+    end
+
+    -- Zerar stats não prioritárias
+    for _, statName in ipairs(self.Stats) do
+        if not table.find(priority, statName) then
+            self.Config.AutoPercentages[statName] = 0
+        end
+    end
+
+    print("[StatAssign] Prioridade atualizada: " .. table.concat(priority, ", "))
+end
+
+--[[
+    Definir modo de distribuição
+]]
+function StatAssign:SetMode(mode)
+    local validModes = {"Auto", "OneShot", "Balanced", "Custom"}
+    for _, validMode in ipairs(validModes) do
+        if mode == validMode then
+            self.Config.Mode = mode
+            print("[StatAssign] Modo alterado para: " .. mode)
+            return true
+        end
+    end
+
+    warn("[StatAssign] Modo inválido: " .. tostring(mode))
+    return false
+end
+
+--[[
+    Atribuir pontos manualmente em uma stat
+]]
+function StatAssign:ManualAssign(statName, amount)
+    if amount <= 0 then return false end
+
+    local availablePoints = self:GetAvailablePoints()
+    if amount > availablePoints then
+        warn("[StatAssign] Pontos insuficientes: " .. availablePoints .. " disponíveis, " .. amount .. " solicitados")
+        return false
+    end
+
+    return self:AddPoints(statName, amount)
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- STATUS
+-- ══════════════════════════════════════════════════════════════════
+
+function StatAssign:GetStatus()
+    local stats = self:GetAllStats()
+
+    return {
+        Running = self._running,
+        Mode = self.Config.Mode,
+        Points = stats.Points,
+        Level = stats.Level,
+        Stats = stats,
+        TotalAssigned = self._totalAssigned,
+        SessionTime = tick() - self._sessionStart,
+    }
+end
+
+-- ══════════════════════════════════════════════════════════════════
+-- INICIALIZAÇÃO
+-- ══════════════════════════════════════════════════════════════════
+
+function StatAssign:Initialize(deps)
+    deps = deps or {}
+    ConfigManager = deps.ConfigManager
+    EventBus = deps.EventBus
+
+    if EventBus then
+        EventBus:On("Misc.StatAssign.Toggle", function(enabled)
+            if enabled then
+                self:Start()
+            else
+                self:Stop()
+            end
+        end)
+
+        EventBus:On("Misc.StatAssign.SetMode", function(mode)
+            self:SetMode(mode)
+        end)
+
+        EventBus:On("Misc.StatAssign.SetPriority", function(priority)
+            self:SetPriority(priority)
+        end)
+    end
+
+    print("[StatAssign] Módulo inicializado")
+    return true
+end
+
+function StatAssign:Cleanup()
+    self:Stop()
+    if EventBus then
+        EventBus:Clear("Misc.StatAssign.Toggle")
+        EventBus:Clear("Misc.StatAssign.SetMode")
+        EventBus:Clear("Misc.StatAssign.SetPriority")
+    end
+    print("[StatAssign] Módulo limpo")
+end
+
+return StatAssign
+end)
+
 -- [Tab/MainTab]
 pcall(function()
 --[[
@@ -11822,6 +17266,28 @@ if Library then
                 else
                     tabMod.Build(window)
                 end
+            end)
+        end
+    end
+
+    -- Initialize feature modules
+    local featureNames = {
+        "Feature/AutoFarm/LevelFarm", "Feature/AutoFarm/BoneFarm", "Feature/AutoFarm/KatakuriFarm",
+        "Feature/Combat/AutoClicker",
+        "Feature/ESP/PlayerESP", "Feature/ESP/FruitESP",
+        "Feature/Teleport/IslandTP",
+        "Feature/Misc/ServerHop", "Feature/Misc/Fly", "Feature/Misc/StatAssign",
+    }
+    for _, name in ipairs(featureNames) do
+        local mod = CUZAO.Modules[name]
+        if mod and mod.Initialize then
+            pcall(function()
+                mod:Initialize({
+                    EventBus = CUZAO.Modules["EventBus"],
+                    ConfigManager = CUZAO.Modules["ConfigManager"],
+                    Services = CUZAO.Modules["Services"],
+                    Logger = CUZAO.Modules["Logger"],
+                })
             end)
         end
     end
