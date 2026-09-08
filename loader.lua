@@ -59,23 +59,24 @@ local function LoadModule(path)
     local success, result = pcall(function()
         local source
 
-        -- Tentar readfile primeiro (se rodando localmente)
-        if readfile and isfile and isfile(path) then
-            source = readfile(path)
-        end
-
-        -- Se não encontrou localmente, baixar do GitHub
-        if not source then
-            local rawContent = game:HttpGet(
+        -- SEMPRE baixar do GitHub primeiro (pegar versão mais recente)
+        local ok, rawContent = pcall(function()
+            return game:HttpGet(
                 "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
                 true -- silent
             )
-            if rawContent and rawContent ~= "" then
-                source = rawContent
-                -- Salvar localmente para próxima vez (se o executor suporta)
-                if writefile then
-                    pcall(writefile, path, source)
-                end
+        end)
+
+        if ok and rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
+            source = rawContent
+            -- Salvar/atualizar cache local
+            if writefile then
+                pcall(writefile, path, source)
+            end
+        else
+            -- GitHub falhou ou retornou HTML (404), tentar cache local
+            if readfile and isfile and isfile(path) then
+                source = readfile(path)
             end
         end
 
@@ -84,7 +85,11 @@ local function LoadModule(path)
             if fn then
                 return fn()
             else
-                warn("[CUZAO] Loadstring error in " .. path .. ": " .. tostring(err))
+                -- Cache estava quebrado, deletar e informar
+                warn("[CUZAO] Loadstring error: " .. path .. " - " .. tostring(err))
+                if delfile and isfile and isfile(path) then
+                    pcall(delfile, path)
+                end
                 return nil
             end
         end
@@ -489,9 +494,71 @@ if not success then
     if CUZAO._Splash then
         pcall(function() CUZAO._Splash:Destroy() end)
     end
-    -- Fallback: try loading with simpler method
+    -- Mostrar erro na tela
     pcall(function()
-        warn("[CUZAO] Tentando carregamento simplificado...")
-        Initialize()
+        local errGui = Instance.new("ScreenGui")
+        errGui.Name = "CUZAO_Error"
+        errGui.DisplayOrder = 99999
+        errGui.Parent = game:GetService("CoreGui")
+
+        local errFrame = Instance.new("Frame")
+        errFrame.Size = UDim2.new(0, 500, 0, 200)
+        errFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+        errFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        errFrame.BackgroundColor3 = Color3.fromRGB(20, 10, 10)
+        errFrame.BorderSizePixel = 0
+        errFrame.Parent = errGui
+        Instance.new("UICorner", errFrame).CornerRadius = UDim.new(0, 10)
+
+        local errStroke = Instance.new("UIStroke")
+        errStroke.Color = Color3.fromRGB(255, 0, 0)
+        errStroke.Thickness = 2
+        errStroke.Parent = errFrame
+
+        local errTitle = Instance.new("TextLabel")
+        errTitle.Size = UDim2.new(1, -20, 0, 30)
+        errTitle.Position = UDim2.new(0, 10, 0, 15)
+        errTitle.BackgroundTransparency = 1
+        errTitle.Text = "❌ CUZAO HUB - Erro ao carregar"
+        errTitle.TextColor3 = Color3.fromRGB(255, 80, 80)
+        errTitle.TextSize = 16
+        errTitle.Font = Enum.Font.GothamBold
+        errTitle.TextXAlignment = Enum.TextXAlignment.Left
+        errTitle.Parent = errFrame
+
+        local errMsg = Instance.new("TextLabel")
+        errMsg.Size = UDim2.new(1, -20, 0, 100)
+        errMsg.Position = UDim2.new(0, 10, 0, 50)
+        errMsg.BackgroundTransparency = 1
+        errMsg.Text = "Erro: " .. tostring(err) .. "\n\nAbra o console do executor (F9) pra ver os detalhes."
+        errMsg.TextColor3 = Color3.fromRGB(200, 200, 200)
+        errMsg.TextSize = 12
+        errMsg.Font = Enum.Font.Code
+        errMsg.TextXAlignment = Enum.TextXAlignment.Left
+        errMsg.TextYAlignment = Enum.TextYAlignment.Top
+        errMsg.TextWrapped = true
+        errMsg.Parent = errFrame
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 100, 0, 30)
+        closeBtn.Position = UDim2.new(0.5, -50, 1, -45)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        closeBtn.Text = "Fechar"
+        closeBtn.TextColor3 = Color3.new(1, 1, 1)
+        closeBtn.TextSize = 12
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.Parent = errFrame
+        Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+        closeBtn.MouseButton1Click:Connect(function()
+            errGui:Destroy()
+        end)
+
+        -- Auto-destruir depois de 30s
+        task.delay(30, function()
+            if errGui and errGui.Parent then
+                errGui:Destroy()
+            end
+        end)
     end)
 end

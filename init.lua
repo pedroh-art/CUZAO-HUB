@@ -46,22 +46,23 @@ local function LoadFile(path)
     local success, result = pcall(function()
         local source
 
-        -- Tentar readfile primeiro (se local)
-        if readfile and isfile and isfile(path) then
-            source = readfile(path)
-        end
-
-        -- Se não encontrou, baixar do GitHub
-        if not source then
-            local rawContent = game:HttpGet(
+        -- SEMPRE baixar do GitHub primeiro (versão mais recente)
+        local ok, rawContent = pcall(function()
+            return game:HttpGet(
                 "https://raw.githubusercontent.com/pedroh-art/CUZAO-HUB/main/" .. path,
                 true
             )
-            if rawContent and rawContent ~= "" then
-                source = rawContent
-                if writefile then
-                    pcall(writefile, path, source)
-                end
+        end)
+
+        if ok and rawContent and rawContent ~= "" and not rawContent:find("<!DOCTYPE") and not rawContent:find("<html") then
+            source = rawContent
+            if writefile then
+                pcall(writefile, path, source)
+            end
+        else
+            -- GitHub falhou, usar cache local
+            if readfile and isfile and isfile(path) then
+                source = readfile(path)
             end
         end
 
@@ -71,6 +72,9 @@ local function LoadFile(path)
                 return fn()
             else
                 warn("[CUZAO] Erro loadstring: " .. path .. " - " .. tostring(err))
+                if delfile and isfile and isfile(path) then
+                    pcall(delfile, path)
+                end
             end
         end
         return nil
